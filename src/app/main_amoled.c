@@ -10,6 +10,7 @@
 #include "emu/gb/gb_core.h"
 #include "storage/rom_flash.h"
 #include "storage/flash_meta.h"
+#include "drivers/storage/storage_sd.h"
 
 // ── 表示レイアウト ────────────────────────────────────────────────────────────
 // GBフレーム 160×144 を 2× スケール → 320×288、中央寄せ
@@ -217,23 +218,66 @@ int main(void) {
     draw_controls();
     amoled_1in8_display((const uint16_t *)s_fb);
 
-    // ROM 確認 ─── メタデータなしでも ROM データがあれば自動登録する
-    // （picotool で直接 Flash 書き込みした場合のための自動検出）
-    if (!flash_meta_rom_valid()) {
-        const uint8_t *rom = rom_flash_ptr();
-        // GB ROM ヘッダ 0x104 = Nintendo ロゴ先頭。0xFF なら未書き込み（Flash ブランク）
-        if (rom[0x104] == 0xFF) {
-            printf("ERROR: No ROM in Flash.\n");
-            printf("Write ROM with:\n");
-            printf("  picotool load kaeru.gb -t bin -o 0x10100000\n");
-            printf("  picotool reboot\n");
-            while (true) tight_loop_contents();
+    // ── ROM 準備（PicoCalc と同じフロー） ────────────────────────────────────
+    // 優先度: 1) SD カード上の ROM → Flash 書き込み
+    //         2) Flash 済み ROM をそのまま使用
+    //         3) picotool で書き込んだ生データを自動検出
+    #define ROM_PATH "0:/roms/kaeru.gb"
+
+    bool rom_in_flash = flash_meta_rom_valid();
+    bool sd_mounted   = false;
+
+    printf("ROM: %s\n", rom_in_flash ? "Flash OK" : "SD required");
+
+    if (!rom_in_flash) {
+        // Flash に ROM なし → SD 必須。マウントできるまでリトライ
+        sleep_ms(500);
+        int fr = FR_NOT_READY;
+        while (fr != FR_OK) {
+            sd_unmount();
+            sleep_ms(500);
+            fr = sd_mount();
+            printf("SD: %s\n", fr == FR_OK ? "OK" : "retrying...");
         }
-        // ROM データあり → メタデータを自動登録（Core 1 未起動なのでロックアウト不要）
-        printf("ROM data found, registering metadata...\n");
-        flash_meta_set_rom(rom + 0x0134);  // GB タイトル（11バイト）
+        sd_mounted = true;
+    } else {
+        // Flash に ROM あり → SD はオプション（1回だけ試みる）
+        sleep_ms(300);
+        if (sd_mount() == FR_OK) {
+            sd_mounted = true;
+            printf("SD: OK\n");
+        } else {
+            printf("SD: (skip)\n");
+        }
     }
-    printf("ROM: OK\n");
+
+    if (sd_mounted) {
+        int rc = rom_flash_ensure(ROM_PATH);
+        if (rc == 0) {
+            flash_meta_set_rom(rom_flash_ptr() + 0x0134);
+            rom_in_flash = true;
+        } else if (!rom_in_flash) {
+            printf("ROM load from SD failed: %d\n", rc);
+        }
+    }
+
+    // picotool で生データを書き込んだ場合の自動検出
+    if (!rom_in_flash) {
+        const uint8_t *rom = rom_flash_ptr();
+        if (rom[0x104] != 0xFF) {
+            printf("ROM: raw data found, registering...\n");
+            flash_meta_set_rom(rom + 0x0134);
+            rom_in_flash = true;
+        }
+    }
+
+    if (!rom_in_flash) {
+        printf("ERROR: No ROM found.\n");
+        printf("  Option A: SD card with roms/kaeru.gb\n");
+        printf("  Option B: picotool load kaeru.gb -t bin -o 0x10100000\n");
+        while (true) tight_loop_contents();
+    }
+    printf("ROM: ready\n");
 
     // GB コア初期化
     int rc = gb_core_init();
