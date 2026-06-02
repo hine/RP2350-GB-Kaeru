@@ -102,14 +102,16 @@ static void draw_controls(void) {
             AMOLED_COLOR(0x5ACB));
 
     // ── ボタンエリア（右半分）4象限 ───────────────────────────────
-    // A: 右上 → 赤系
-    fb_fill(BTN_MID_X, CTRL_Y, AMOLED_WIDTH, BTN_MID_Y, AMOLED_COLOR(0x5000));
-    // B: 左上 → 青系
-    fb_fill(AMOLED_WIDTH/2, CTRL_Y, BTN_MID_X, BTN_MID_Y, AMOLED_COLOR(0x000A));
-    // START: 右下 → 緑系
-    fb_fill(BTN_MID_X, BTN_MID_Y, AMOLED_WIDTH, AMOLED_HEIGHT, AMOLED_COLOR(0x0200));
-    // SELECT: 左下 → 黄系
-    fb_fill(AMOLED_WIDTH/2, BTN_MID_Y, BTN_MID_X, AMOLED_HEIGHT, AMOLED_COLOR(0x3180));
+    // 上段: システムボタン（地味な色）
+    // SELECT: 左上 → 暗めの黄系
+    fb_fill(AMOLED_WIDTH/2, CTRL_Y, BTN_MID_X, BTN_MID_Y, AMOLED_COLOR(0x3180));
+    // START: 右上 → 暗めの緑系
+    fb_fill(BTN_MID_X, CTRL_Y, AMOLED_WIDTH, BTN_MID_Y, AMOLED_COLOR(0x0200));
+    // 下段: アクションボタン（明るい色）
+    // B: 左下 → 青系
+    fb_fill(AMOLED_WIDTH/2, BTN_MID_Y, BTN_MID_X, AMOLED_HEIGHT, AMOLED_COLOR(0x000A));
+    // A: 右下 → 赤系
+    fb_fill(BTN_MID_X, BTN_MID_Y, AMOLED_WIDTH, AMOLED_HEIGHT, AMOLED_COLOR(0x5000));
 
     // ボタン象限境界線
     fb_fill(BTN_MID_X, CTRL_Y, BTN_MID_X + 1, AMOLED_HEIGHT, AMOLED_COLOR(0x2945));
@@ -154,10 +156,12 @@ static uint8_t joypad_from_touch(const ft3168_data_t *td) {
         // ボタンゾーン: 4象限で A / B / START / SELECT
         bool upper = (ty < BTN_MID_Y);
         bool right = (tx >= BTN_MID_X);
-        if (upper &&  right) joy &= ~JOYPAD_A;
-        if (upper && !right) joy &= ~JOYPAD_B;
-        if (!upper &&  right) joy &= ~JOYPAD_START;
-        if (!upper && !right) joy &= ~JOYPAD_SELECT;
+        // 上段: SELECT(左) / START(右)
+        // 下段: B(左)      / A(右)
+        if ( upper &&  right) joy &= ~JOYPAD_START;
+        if ( upper && !right) joy &= ~JOYPAD_SELECT;
+        if (!upper &&  right) joy &= ~JOYPAD_A;
+        if (!upper && !right) joy &= ~JOYPAD_B;
     }
     return joy;
 }
