@@ -87,3 +87,34 @@ pico_add_extra_outputs(picocalc_gb_kaeru)
 # デバッグ時は UART (GP0/GP1) を使うか、LCD 出力で確認する。
 pico_enable_stdio_usb(picocalc_gb_kaeru 0)
 pico_enable_stdio_uart(picocalc_gb_kaeru 0)
+
+# ── AMOLED タッチ確認テスト (Phase 2a) ─────────────────────────────────────────
+# ターゲット: Waveshare RP2350-Touch-AMOLED-1.8
+# printf → USB CDC (接続中の USB ケーブルそのまま使用)
+add_executable(amoled_touch_test
+    src/app/main_touch_test.c
+    src/drivers/display/qspi_pio.c
+    src/drivers/display/amoled_1in8.c
+    src/drivers/input/ft3168_touch.c
+)
+
+pico_generate_pio_header(amoled_touch_test
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/display/qspi.pio
+)
+
+target_include_directories(amoled_touch_test PRIVATE
+    src
+)
+
+target_link_libraries(amoled_touch_test
+    pico_stdlib
+    hardware_i2c
+    hardware_gpio
+    hardware_pio
+    hardware_dma
+    hardware_clocks
+)
+
+pico_add_extra_outputs(amoled_touch_test)
+pico_enable_stdio_usb(amoled_touch_test 1)
+pico_enable_stdio_uart(amoled_touch_test 0)
