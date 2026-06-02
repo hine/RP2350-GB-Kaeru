@@ -57,7 +57,7 @@ bool ft3168_read(i2c_inst_t *i2c, ft3168_data_t *out) {
     read_bytes(i2c, REG_FINGER_NUM, buf, sizeof(buf));
 
     uint8_t n = buf[0] & 0x0F;
-    out->n_points = (n > 2) ? 0 : n;  // sanity: chip reports max 2
+    out->n_points = (n > 2) ? 2 : n;
 
     // Touch point 1 at buf[1..6]
     out->p[0].event = (buf[1] >> 6) & 0x03;
