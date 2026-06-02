@@ -118,3 +118,48 @@ target_link_libraries(amoled_touch_test
 pico_add_extra_outputs(amoled_touch_test)
 pico_enable_stdio_usb(amoled_touch_test 1)
 pico_enable_stdio_uart(amoled_touch_test 0)
+
+# ── AMOLED GB エミュレータ (Phase 3) ────────────────────────────────────────────
+# ターゲット: Waveshare RP2350-Touch-AMOLED-1.8
+# ROM は PicoCalc ビルドで Flash 書き込み済みの前提（SD カード不使用）
+add_executable(amoled_gb_kaeru
+    src/app/main_amoled.c
+    src/drivers/display/qspi_pio.c
+    src/drivers/display/amoled_1in8.c
+    src/drivers/input/ft3168_touch.c
+    src/emu/gb/gb_core.c
+    lib/peanut-gb/examples/sdl2/minigb_apu/minigb_apu.c
+    src/boards/waveshare_touch_amoled_1_8/storage_stubs.c
+    src/storage/flash_meta.c
+)
+
+pico_generate_pio_header(amoled_gb_kaeru
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/display/qspi.pio
+)
+
+target_include_directories(amoled_gb_kaeru PRIVATE
+    src
+    lib/peanut-gb
+    lib/peanut-gb/examples/sdl2/minigb_apu
+    compat
+)
+
+target_link_libraries(amoled_gb_kaeru
+    pico_stdlib
+    pico_multicore
+    hardware_i2c
+    hardware_gpio
+    hardware_pio
+    hardware_dma
+    hardware_clocks
+    hardware_flash
+    hardware_sync
+)
+
+target_compile_definitions(amoled_gb_kaeru PRIVATE
+    MINIGB_APU_AUDIO_FORMAT_S16SYS
+)
+
+pico_add_extra_outputs(amoled_gb_kaeru)
+pico_enable_stdio_usb(amoled_gb_kaeru 1)
+pico_enable_stdio_uart(amoled_gb_kaeru 0)
