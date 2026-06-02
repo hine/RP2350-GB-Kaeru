@@ -1,5 +1,5 @@
 #include "save_state.h"
-#include "gb/gb_core.h"
+#include "emu/gb/gb_core.h"
 #include "ff.h"
 #include <stdlib.h>
 #include <stdio.h>

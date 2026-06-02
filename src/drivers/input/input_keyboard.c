@@ -1,6 +1,6 @@
 #include "pico/stdlib.h"
 #include "hardware/i2c.h"
-#include "input_keyboard.h"
+#include "drivers/input/input_keyboard.h"
 
 static uint8_t kbd_inited = 0;
 

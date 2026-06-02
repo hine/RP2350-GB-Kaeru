@@ -1,4 +1,4 @@
-#include "audio_pwm.h"
+#include "drivers/audio/audio_pwm.h"
 #include "pico.h"
 #include "hardware/gpio.h"
 #include "hardware/pwm.h"

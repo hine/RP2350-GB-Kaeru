@@ -39,25 +39,24 @@ target_link_libraries(LovyanGFX PUBLIC
 )
 
 add_executable(picocalc_gb_kaeru
-    src/main.c
-    src/video/video_lgfx.cpp
-    src/input/input_keyboard.c
-    src/storage/storage_sd.c
+    src/app/main.c
+    src/drivers/display/video_lgfx.cpp
+    src/drivers/input/input_keyboard.c
+    src/drivers/storage/storage_sd.c
     src/storage/rom_flash.c
     src/storage/save_flash.c
     src/storage/flash_meta.c
     src/storage/save_sram.c
     src/storage/save_state.c
-    src/audio/audio_pwm.c
-    src/menu/menu.c
-    emu/gb/gb_core.c
+    src/drivers/audio/audio_pwm.c
+    src/ui/menu/menu.c
+    src/emu/gb/gb_core.c
     lib/peanut-gb/examples/sdl2/minigb_apu/minigb_apu.c
-    src/storage/hw_config.c
+    src/drivers/storage/hw_config.c
 )
 
 target_include_directories(picocalc_gb_kaeru PRIVATE
     src
-    emu
     lib/no-OS-FatFS-SD-SPI-RPi-Pico/FatFs_SPI/include
     lib/peanut-gb
     lib/peanut-gb/examples/sdl2/minigb_apu

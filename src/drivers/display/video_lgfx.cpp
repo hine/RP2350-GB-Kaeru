@@ -1,5 +1,5 @@
 #include "lgfx_config.hpp"
-#include "video_lcd.h"
+#include "hal/display.h"
 #include <string.h>
 
 static LGFX_PicoCalc lcd;

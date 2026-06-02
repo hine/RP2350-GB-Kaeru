@@ -1,6 +1,6 @@
-#include "menu.h"
-#include "video/video_lcd.h"
-#include "input/input_keyboard.h"
+#include "ui/menu/menu.h"
+#include "hal/display.h"
+#include "drivers/input/input_keyboard.h"
 #include <stdio.h>
 #include <string.h>
 

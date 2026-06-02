@@ -1,7 +1,7 @@
 #include "save_flash.h"
 #include "flash_meta.h"
 #include "rom_flash.h"
-#include "gb/gb_core.h"
+#include "emu/gb/gb_core.h"
 #include "hardware/flash.h"
 #include "hardware/sync.h"
 #include <string.h>

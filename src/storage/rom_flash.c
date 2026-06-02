@@ -1,5 +1,5 @@
 #include "rom_flash.h"
-#include "video/video_lcd.h"
+#include "hal/display.h"
 #include "ff.h"
 #include "hardware/flash.h"
 #include "hardware/sync.h"
