@@ -131,6 +131,7 @@ add_executable(amoled_gb_kaeru
     lib/peanut-gb/examples/sdl2/minigb_apu/minigb_apu.c
     src/storage/rom_flash.c
     src/storage/flash_meta.c
+    src/storage/save_flash.c
     src/drivers/storage/storage_sd.c
     src/boards/waveshare_touch_amoled_1_8/hw_config.c
     src/boards/waveshare_touch_amoled_1_8/display_stubs.c

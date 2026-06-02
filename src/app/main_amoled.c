@@ -10,28 +10,36 @@
 #include "emu/gb/gb_core.h"
 #include "storage/rom_flash.h"
 #include "storage/flash_meta.h"
+#include "storage/save_flash.h"
 #include "drivers/storage/storage_sd.h"
 
 // ── 表示レイアウト ────────────────────────────────────────────────────────────
-// GBフレーム 160×144 を 2× スケール → 320×288、中央寄せ
+// 上部: ステータスバー 16px（セーブ UI）
+// 中部: GB フレーム 160×144 → 2× = 320×288、中央寄せ
+// 下部: 操作エリア 144px
+#define STATUS_H  16
 #define GB_SCALE  2
 #define GB_W2     (GB_SCREEN_W * GB_SCALE)              // 320
 #define GB_H2     (GB_SCREEN_H * GB_SCALE)              // 288
 #define GB_X_OFF  ((AMOLED_WIDTH  - GB_W2) / 2)         // 24
-#define GB_Y_OFF  0
+#define GB_Y_OFF  STATUS_H                               // 16
 
-// 操作エリア（画面下部 160px）
-#define CTRL_Y    GB_H2                                  // 288
-#define CTRL_H    (AMOLED_HEIGHT - CTRL_Y)               // 160
+// 操作エリア（STATUS_H + GB_H2 より下の 144px）
+#define CTRL_Y    (GB_Y_OFF + GB_H2)                     // 304
+#define CTRL_H    (AMOLED_HEIGHT - CTRL_Y)               // 144
 
 // 左半分: D-Pad。中心点
 #define DPAD_CX   (AMOLED_WIDTH / 4)                     // 92
-#define DPAD_CY   (CTRL_Y + CTRL_H / 2)                  // 368
-#define DPAD_DEAD 30   // px: 中心からこれ以上離れて初めて入力とみなす
+#define DPAD_CY   (CTRL_Y + CTRL_H / 2)                  // 376
+#define DPAD_DEAD 30
 
 // 右半分: ボタン。4象限の境界線
 #define BTN_MID_X (AMOLED_WIDTH  * 3 / 4)               // 276
-#define BTN_MID_Y (CTRL_Y + CTRL_H / 2)                  // 368
+#define BTN_MID_Y (CTRL_Y + CTRL_H / 2)                  // 376
+
+// ステータスバーのタッチゾーン
+#define STATUS_SAVE_X  (AMOLED_WIDTH / 3)               // 0..122 でセーブ
+#define STATUS_LOAD_X  (AMOLED_WIDTH * 2 / 3)           // 245..367 でロード
 
 // ── DMG Green パレット（big-endian RGB565） ──────────────────────────────────
 static const uint16_t s_pal[4] = {
@@ -56,6 +64,12 @@ static volatile bool     g_touch_flag = false;   // タッチ IRQ フラグ
 
 static int g_gb_write = 0;   // Core 0 が書き込む GB バッファ番号
 
+// ── セーブ関連 ───────────────────────────────────────────────────────────────
+static int  g_state_slot           = 0;   // 現在のセーブスロット (0-9)
+static int  g_sram_dirty_countdown = 0;   // SRAM 自動セーブカウントダウン（60=~1秒）
+static int  g_status_ttl           = 0;   // ステータスバーフラッシュ残フレーム数
+static uint16_t g_status_flash_color = 0; // フラッシュ色
+
 // ── 汎用描画 ─────────────────────────────────────────────────────────────────
 static void fb_fill(int x0, int y0, int x1, int y1, uint16_t c) {
     if (x0 < 0) x0 = 0;
@@ -67,11 +81,41 @@ static void fb_fill(int x0, int y0, int x1, int y1, uint16_t c) {
             s_fb[y][x] = c;
 }
 
+// ── ステータスバー描画（毎フレーム Core 0 から更新可） ────────────────────────
+static void draw_status_bar(void) {
+    uint16_t bg   = AMOLED_COLOR(0x1082);  // 暗いグレー（通常時）
+    uint16_t save_c = AMOLED_COLOR(0x2945);  // セーブゾーン: やや明るい
+    uint16_t load_c = AMOLED_COLOR(0x2945);  // ロードゾーン: やや明るい
+
+    // フラッシュ中は全体をフラッシュ色で上書き
+    if (g_status_ttl > 0) {
+        fb_fill(0, 0, AMOLED_WIDTH, STATUS_H, g_status_flash_color);
+        return;
+    }
+
+    // 通常表示: セーブ | スロット×10 | ロード
+    fb_fill(0, 0, AMOLED_WIDTH, STATUS_H, bg);
+    fb_fill(0, 0, STATUS_SAVE_X, STATUS_H, save_c);
+    fb_fill(STATUS_LOAD_X, 0, AMOLED_WIDTH, STATUS_H, load_c);
+
+    // スロットインジケーター: 10個の小ブロック (中央エリア)
+    int slot_area_w = STATUS_LOAD_X - STATUS_SAVE_X;  // ~122px
+    int block_w = slot_area_w / SAVE_FLASH_STATE_N_SLOTS;  // 12px
+    for (int i = 0; i < SAVE_FLASH_STATE_N_SLOTS; i++) {
+        int x0 = STATUS_SAVE_X + i * block_w + 1;
+        int x1 = x0 + block_w - 2;
+        uint16_t c = (i == g_state_slot)
+                     ? AMOLED_COLOR(0xFFFF)   // 現在スロット: 白
+                     : AMOLED_COLOR(0x39E7);  // 他スロット: 暗め
+        fb_fill(x0, 2, x1, STATUS_H - 2, c);
+    }
+}
+
 // ── 操作 UI（起動時に一度だけ描画） ─────────────────────────────────────────
 static void draw_controls(void) {
-    // GB エリア左右余白: 黒
-    fb_fill(0, 0, GB_X_OFF, GB_H2, AMOLED_COLOR(0x0000));
-    fb_fill(GB_X_OFF + GB_W2, 0, AMOLED_WIDTH, GB_H2, AMOLED_COLOR(0x0000));
+    // GB エリア左右余白: 黒（STATUS_H 分下にシフト）
+    fb_fill(0, GB_Y_OFF, GB_X_OFF, GB_Y_OFF + GB_H2, AMOLED_COLOR(0x0000));
+    fb_fill(GB_X_OFF + GB_W2, GB_Y_OFF, AMOLED_WIDTH, GB_Y_OFF + GB_H2, AMOLED_COLOR(0x0000));
 
     // 操作エリア全体の背景: 濃いネイビー
     fb_fill(0, CTRL_Y, AMOLED_WIDTH, AMOLED_HEIGHT, AMOLED_COLOR(0x0821));
@@ -116,6 +160,40 @@ static void draw_controls(void) {
     // ボタン象限境界線
     fb_fill(BTN_MID_X, CTRL_Y, BTN_MID_X + 1, AMOLED_HEIGHT, AMOLED_COLOR(0x2945));
     fb_fill(AMOLED_WIDTH/2, BTN_MID_Y, AMOLED_WIDTH, BTN_MID_Y + 1, AMOLED_COLOR(0x2945));
+}
+
+// ── セーブ / ロード操作（Core 0 から呼ぶ、Core 1 はロックアウト済み） ─────────
+static void do_save_state(void) {
+    multicore_lockout_start_blocking();
+    save_flash_state_save(g_state_slot);
+    multicore_lockout_end_blocking();
+    g_status_flash_color = AMOLED_COLOR(0xFFE0);  // 黄: セーブ完了
+    g_status_ttl = 60;  // ~1秒間フラッシュ
+    printf("State saved: slot %d\n", g_state_slot);
+}
+
+static void do_load_state(void) {
+    int r = save_flash_state_load(g_state_slot);
+    if (r == 0) {
+        g_status_flash_color = AMOLED_COLOR(0x07E0);  // 緑: ロード成功
+        printf("State loaded: slot %d\n", g_state_slot);
+    } else {
+        g_status_flash_color = AMOLED_COLOR(0xF800);  // 赤: 未保存
+        printf("State load: slot %d empty\n", g_state_slot);
+    }
+    g_status_ttl = 45;
+}
+
+static void handle_status_touch(int tx) {
+    if (tx < STATUS_SAVE_X) {
+        do_save_state();
+    } else if (tx >= STATUS_LOAD_X) {
+        do_load_state();
+    } else {
+        // 中央: スロット切り替え（0-9 サイクル）
+        g_state_slot = (g_state_slot + 1) % SAVE_FLASH_STATE_N_SLOTS;
+        printf("Slot: %d\n", g_state_slot);
+    }
 }
 
 // ── GB フレーム → AMOLED フレームバッファへ 2× スケール変換 ─────────────────
@@ -187,8 +265,9 @@ static void core1_main(void) {
 
         int idx = g_lcd_idx;
         render_frame(s_gb[idx]);
-        amoled_1in8_display_window(GB_X_OFF, GB_Y_OFF,
-                                   GB_X_OFF + GB_W2, GB_Y_OFF + GB_H2,
+        // ステータスバー (y=0..STATUS_H-1) + GB フレーム (y=GB_Y_OFF..CTRL_Y-1)
+        // を全幅で一括転送する（ステータスバーの更新も含む）
+        amoled_1in8_display_window(0, 0, AMOLED_WIDTH, CTRL_Y,
                                    (const uint16_t *)s_fb);
         __dmb();
         g_lcd_busy = false;
@@ -295,6 +374,12 @@ int main(void) {
     g_gb_write = 0;
     gb_core_set_joypad(0xFF);
 
+    // SRAM セーブをロード（ROM タイトル照合で有効性確認）
+    if (gb_core_save_size() > 0) {
+        int sr = save_flash_sram_load(gb_core_cart_ram_ptr(), gb_core_save_size());
+        printf("SRAM: %s\n", sr == 0 ? "loaded" : "no save");
+    }
+
     // FT3168 タッチ（ポイントモード）
     ft3168_init(BOARD_I2C, TOUCH_RST_PIN, FT3168_MODE_POINT);
     gpio_init(TOUCH_INT_PIN);
@@ -318,14 +403,40 @@ int main(void) {
         while (!g_frame_tick) tight_loop_contents();
         g_frame_tick = false;
 
-        // タッチ読み取り（IRQ フラグが立っているフレームのみ）
+        // タッチ読み取り
         if (g_touch_flag) {
             g_touch_flag = false;
             ft3168_read(BOARD_I2C, &touch);
+
+            // ステータスバーのタッチ（セーブ / スロット切替 / ロード）
+            if (touch.n_points > 0 && touch.p[0].event == 0) {
+                // event==0: 新規プレスのみ受け付ける（押しっぱなしで連続実行しない）
+                int ty = (int)touch.p[0].y;
+                int tx = (int)touch.p[0].x;
+                if (ty < STATUS_H) {
+                    handle_status_touch(tx);
+                }
+            }
         }
 
         gb_core_set_joypad(joypad_from_touch(&touch));
         gb_core_run_frame();
+
+        // SRAM 自動セーブ: dirty 検出後 ~1秒デバウンスで Flash に保存
+        if (gb_core_consume_dirty()) g_sram_dirty_countdown = 60;
+        if (g_sram_dirty_countdown > 0 && --g_sram_dirty_countdown == 0
+                && gb_core_save_size() > 0) {
+            multicore_lockout_start_blocking();
+            save_flash_sram_save(gb_core_cart_ram_ptr(), gb_core_save_size());
+            multicore_lockout_end_blocking();
+            printf("SRAM auto-saved\n");
+        }
+
+        // ステータスバーフラッシュカウントダウン
+        if (g_status_ttl > 0) --g_status_ttl;
+
+        // ステータスバーを更新してから Core 1 へ渡す
+        draw_status_bar();
 
         // Core 1 が前フレームを描画し終えていれば新フレームを渡す
         if (!g_lcd_busy) {
