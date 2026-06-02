@@ -8,6 +8,7 @@
 #include "drivers/display/amoled_1in8.h"
 #include "drivers/input/ft3168_touch.h"
 #include "emu/gb/gb_core.h"
+#include "storage/rom_flash.h"
 #include "storage/flash_meta.h"
 
 // ── 表示レイアウト ────────────────────────────────────────────────────────────
@@ -216,11 +217,21 @@ int main(void) {
     draw_controls();
     amoled_1in8_display((const uint16_t *)s_fb);
 
-    // ROM 確認
+    // ROM 確認 ─── メタデータなしでも ROM データがあれば自動登録する
+    // （picotool で直接 Flash 書き込みした場合のための自動検出）
     if (!flash_meta_rom_valid()) {
-        printf("ERROR: No ROM in Flash.\n"
-               "Flash PicoCalc firmware and load ROM first, then reflash AMOLED firmware.\n");
-        while (true) tight_loop_contents();
+        const uint8_t *rom = rom_flash_ptr();
+        // GB ROM ヘッダ 0x104 = Nintendo ロゴ先頭。0xFF なら未書き込み（Flash ブランク）
+        if (rom[0x104] == 0xFF) {
+            printf("ERROR: No ROM in Flash.\n");
+            printf("Write ROM with:\n");
+            printf("  picotool load kaeru.gb -t bin -o 0x10100000\n");
+            printf("  picotool reboot\n");
+            while (true) tight_loop_contents();
+        }
+        // ROM データあり → メタデータを自動登録（Core 1 未起動なのでロックアウト不要）
+        printf("ROM data found, registering metadata...\n");
+        flash_meta_set_rom(rom + 0x0134);  // GB タイトル（11バイト）
     }
     printf("ROM: OK\n");
 
