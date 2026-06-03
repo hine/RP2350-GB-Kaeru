@@ -455,6 +455,19 @@ int main(void) {
     audio_i2s_init();
     printf("Audio: OK\n");
 
+    // POWER ボタン（GPIO18 = SYS_OUT_PIN）を A ボタンとして使用。
+    // FT3168 がシングルポイントタッチのみ対応のため、方向キーとの同時押しが
+    // タッチだけでは不可能。物理ボタンで補完する。
+    //
+    // 【重要な制限】USB 給電中のみ安全。
+    //   USB 給電時: AXP2101 は VBUS 検出により長押し電源 OFF を無効化するため、
+    //               短押し・長押し問わず GPIO18 入力として安全に読める。
+    //   バッテリー使用時: 長押し（約 4 秒）で AXP2101 が電源 OFF を実行する可能性がある。
+    //               その場合は長押し検出で A ボタン入力を中断する処理が必要。
+    gpio_init(SYS_OUT_PIN);
+    gpio_set_dir(SYS_OUT_PIN, GPIO_IN);
+    gpio_pull_up(SYS_OUT_PIN);
+
     // FT3168 タッチ（ポイントモード）
     ft3168_init(BOARD_I2C, TOUCH_RST_PIN, FT3168_MODE_POINT);
     gpio_init(TOUCH_INT_PIN);
@@ -494,7 +507,12 @@ int main(void) {
             }
         }
 
-        gb_core_set_joypad(joypad_from_touch(&touch));
+        // タッチ + POWER 物理ボタンを合成してジョイパッドをセット
+        // POWER ボタン（GPIO18）: LOW = 押下（active-low、内部プルアップ）
+        // タッチが A を押していない場合でも POWER ボタンで A を入力できる
+        uint8_t joy = joypad_from_touch(&touch);
+        if (!gpio_get(SYS_OUT_PIN)) joy &= ~JOYPAD_A;
+        gb_core_set_joypad(joy);
         gb_core_run_frame();
 
         // APU サンプルをリングバッファへ push
