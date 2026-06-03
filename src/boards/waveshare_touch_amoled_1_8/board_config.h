@@ -24,4 +24,4 @@
 #define DISP_RST_PIN    15
 
 // System
-#define SYS_OUT_PIN     18  // active-high power key
+#define SYS_OUT_PIN     18  // power key: gpio_get()=HIGH when pressed (BSS138 inversion)
