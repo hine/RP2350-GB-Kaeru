@@ -20,6 +20,7 @@
 #include "storage/save_state.h"
 #include "emu/gb/gb_core.h"
 #include "drivers/storage/storage_sd.h"
+#include "drivers/display/game_btn_img.h"
 
 // ── 表示レイアウト ────────────────────────────────────────────────────────────
 // AMOLED: 368×448
@@ -438,10 +439,10 @@ static void draw_system_buttons(void) {
 
 // ── ゲームボタン描画（起動時のみ、AMOLED GRAM に保持） ───────────────────────
 static void draw_game_buttons(void) {
-    draw_btn(0, GAME_BTN_Y, GAME_BTN_H, "SEL",   COL_BTN_SEL);
-    draw_btn(1, GAME_BTN_Y, GAME_BTN_H, "START", COL_BTN_STA);
-    draw_btn(2, GAME_BTN_Y, GAME_BTN_H, "B",     COL_BTN_B);
-    draw_btn(3, GAME_BTN_Y, GAME_BTN_H, "A",     COL_BTN_A);
+    // PNG を RGB565 変換した画像データを直接 s_fb にコピー
+    for (int y = 0; y < GAME_BTN_IMG_H; y++)
+        for (int x = 0; x < GAME_BTN_IMG_W; x++)
+            s_fb[GAME_BTN_Y + y][x] = game_btn_img[y][x];
 }
 
 // ── D-Pad オーバーレイ（Core 1 から毎フレーム呼ぶ、active 時のみ） ──────────
