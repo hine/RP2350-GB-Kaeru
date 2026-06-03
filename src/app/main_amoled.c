@@ -511,7 +511,12 @@ static void do_menu_open(void) {
 static void do_menu_close(void) {
     g_menu_active = false;
     g_status_ttl  = 0;
-    printf("Menu: close\n");
+    // 設定を Flash に保存（PicoCalc と同じ: メニューを閉じたとき）
+    // audio_en フィールドを vol_step（0-5）として流用
+    multicore_lockout_start_blocking();
+    flash_settings_save((uint8_t)g_palette_idx, (uint8_t)g_vol_step, 80);
+    multicore_lockout_end_blocking();
+    printf("Menu: close, settings saved (pal=%d vol=%d)\n", g_palette_idx, g_vol_step);
 }
 
 static void handle_sys_btn(int col) {
@@ -810,6 +815,17 @@ int main(void) {
     g_gb_write = 0;
     gb_core_set_joypad(0xFF);
 
+    // 設定ロード（PicoCalc と同じ: ROM ロード後に実施）
+    {
+        uint8_t pal, vol, bl;
+        flash_settings_load(&pal, &vol, &bl);
+        g_palette_idx = (pal < N_PALETTES) ? pal : 0;
+        g_vol_step    = (vol < 6)          ? vol : 3;  // audio_en を vol_step として流用
+        s_pal = s_palettes[g_palette_idx];
+        // 音量適用は audio_i2s_init 後（ES8311 が有効になってから）
+        printf("Settings: pal=%d vol=%d\n", g_palette_idx, g_vol_step);
+    }
+
     // SRAM ロード
     if (gb_core_save_size() > 0) {
         int sr = save_flash_sram_load(gb_core_cart_ram_ptr(), gb_core_save_size());
@@ -820,6 +836,7 @@ int main(void) {
     audio_i2s_set_fill_cb(audio_fill);
     audio_i2s_init();
     printf("Audio: OK\n");
+    apply_volume();  // Flash から読み込んだ音量を ES8311 に適用
 
     // POWER ボタン（GPIO18 = SYS_OUT_PIN）: BSS138 反転回路
     //   未押下: PWRON=HIGH → BSS138 ON → GPIO18=LOW
@@ -862,12 +879,14 @@ int main(void) {
             if (s_touch_age < TOUCH_LIFT_FRAMES) {
                 s_touch_age++;
             }
-            if (s_touch_age >= TOUCH_LIFT_FRAMES && s_touch_zone != -1) {
+            if (s_touch_age >= TOUCH_LIFT_FRAMES) {
+                // s_touch_zone の状態にかかわらず全タッチ状態をリセット
+                // （メニュー中は s_touch_zone が -1 のままのため条件なしで判定）
                 g_dpad_active       = false;
                 s_btn_joy           = 0xFF;
                 s_touch_zone        = -1;
                 s_touched_game_area = false;
-                s_menu_item         = -1;  // メニュー項目選択もリセット
+                s_menu_item         = -1;  // 次のタップで same_item も new_item=true になる
             }
         }
 
