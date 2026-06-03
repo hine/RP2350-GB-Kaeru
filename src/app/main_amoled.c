@@ -215,7 +215,12 @@ static int  g_palette_idx = 0;
 
 // 音量ステップ: 0=Off, 1=20%, 2=40%, 3=60%, 4=80%, 5=100%
 static int  g_vol_step    = 3;  // 起動時 60%
-static const int  s_vol_values[6] = { 0, 20, 40, 60, 80, 100 };
+// ES8311 REG32 は 0.5 dB/step、0xBF(=191)が 0 dB 基準。
+// 191 を超えると増幅になりクリッピングする（vol=80 相当の reg=203 が該当）。
+// 等 dB 間隔（約 8 dB/step）で 100% でも reg=168（−11.5 dB）に収め歪みを回避。
+//   20%=reg101(−45dB), 40%=reg119(−36dB), 60%=reg134(−28.5dB),
+//   80%=reg152(−19.5dB), 100%=reg168(−11.5dB)
+static const int  s_vol_values[6] = { 0, 40, 47, 53, 60, 66 };
 static const char *s_vol_labels[6] = { "Off", "20%", "40%", "60%", "80%", "100%" };
 
 static void apply_volume(void) {
