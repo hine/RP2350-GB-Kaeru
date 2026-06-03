@@ -5,12 +5,13 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-// AUDIO_SAMPLE_RATE=32800 → AUDIO_SAMPLES=549サンプル/フレーム。
-// int(32768/59.7275)=548 の切り捨て誤差を補正し、生成レートを 32769Hz に近づける。
-// DMA側(TIMER_WRAP=4578→32767Hz)と合わせると GB APU 正規レート 32768Hz との
-// 誤差が 0.117% → 0.004% に縮小し、長時間再生でのテンポずれが解消する。
+// AUDIO_SAMPLE_RATE はビルド定義で上書き可能。
+//   32800 (デフォルト / PicoCalc PWM): AUDIO_SAMPLES=549, 実効 32769Hz
+//   32000 (AMOLED I2S):               AUDIO_SAMPLES=535, ES8311 で正確に 32000Hz
+#ifndef AUDIO_SAMPLE_RATE
 #define AUDIO_SAMPLE_RATE 32800
-#define MINIGB_APU_AUDIO_FORMAT_S16SYS
+#endif
+// MINIGB_APU_AUDIO_FORMAT_S16SYS は CMakeLists.txt の compile_definitions で指定
 #include "minigb_apu.h"
 
 static struct minigb_apu_ctx apu_ctx;

@@ -127,6 +127,8 @@ add_executable(amoled_gb_kaeru
     src/drivers/display/qspi_pio.c
     src/drivers/display/amoled_1in8.c
     src/drivers/input/ft3168_touch.c
+    src/drivers/audio/es8311.c
+    src/drivers/audio/audio_i2s.c
     src/emu/gb/gb_core.c
     lib/peanut-gb/examples/sdl2/minigb_apu/minigb_apu.c
     src/storage/rom_flash.c
@@ -165,8 +167,38 @@ target_link_libraries(amoled_gb_kaeru
 
 target_compile_definitions(amoled_gb_kaeru PRIVATE
     MINIGB_APU_AUDIO_FORMAT_S16SYS
+    # ES8311 I2S @ 32000 Hz: AUDIO_SAMPLES=535/frame, Bresenham で正確な平均レートを維持
+    AUDIO_SAMPLE_RATE=32000
+    GB_AUDIO_SAMPLES=535
 )
 
 pico_add_extra_outputs(amoled_gb_kaeru)
 pico_enable_stdio_usb(amoled_gb_kaeru 1)
 pico_enable_stdio_uart(amoled_gb_kaeru 0)
+
+# ── AMOLED サウンドテスト (Phase 2b) ─────────────────────────────────────────
+# ES8311 I2C 初期化 → PIO MCLK + I2S → 440 Hz サイン波出力
+# FatFS なし / ディスプレイなし — USB serial でデバッグ出力
+add_executable(amoled_sound_test
+    src/app/main_sound_test.c
+    src/drivers/audio/es8311.c
+    src/drivers/audio/audio_i2s.c
+)
+
+target_include_directories(amoled_sound_test PRIVATE
+    src
+)
+
+target_link_libraries(amoled_sound_test
+    pico_stdlib
+    hardware_i2c
+    hardware_gpio
+    hardware_pio
+    hardware_dma
+    hardware_clocks
+    m
+)
+
+pico_add_extra_outputs(amoled_sound_test)
+pico_enable_stdio_usb(amoled_sound_test 1)
+pico_enable_stdio_uart(amoled_sound_test 0)

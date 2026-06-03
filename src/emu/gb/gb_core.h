@@ -45,7 +45,13 @@ bool     gb_core_consume_dirty(void); // dirty フラグを返してクリア（
 
 // 1フレーム分の S16 ステレオインターリーブ音声サンプルを buf へ書き込む。
 // buf は GB_AUDIO_SAMPLES_TOTAL 要素以上の int16_t 配列であること。
-#define GB_AUDIO_SAMPLES      549   // L/R ペア数/フレーム（32769Hz / ~59.73fps、AUDIO_SAMPLE_RATE=32800で生成）
+//
+// GB_AUDIO_SAMPLES は AUDIO_SAMPLE_RATE から導出される:
+//   32800 (default/PicoCalc) → 549、32000 (AMOLED I2S) → 535
+// ビルド定義 -DGB_AUDIO_SAMPLES=N で上書き可能。
+#ifndef GB_AUDIO_SAMPLES
+#define GB_AUDIO_SAMPLES      549
+#endif
 #define GB_AUDIO_SAMPLES_TOTAL (GB_AUDIO_SAMPLES * 2)
 void gb_core_fill_audio(int16_t *buf);
 

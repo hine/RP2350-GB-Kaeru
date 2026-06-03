@@ -1,5 +1,6 @@
 #include "drivers/display/qspi_pio.h"
 #include "pico/stdlib.h"
+#include "hardware/clocks.h"
 
 pio_qspi_t qspi = {
     .pio       = pio0,
@@ -37,6 +38,15 @@ void QSPI_PIO_Init(pio_qspi_t qspi) {
     uint offset = pio_add_program(qspi.pio, &qspi_4wire_data_program);
     qspi_4wire_data_program_init(qspi.pio, qspi.sm_4wire, offset,
                                  DISP_SCLK_PIN, DISP_DIO0_PIN, 4);
+
+    // QSPI SCLK を ~75MHz に固定する。
+    // PIO プログラムは 2命令/SCLK周期（out + nop）なので:
+    //   div = sys_clk / (75MHz × 2)
+    // 150MHz 時は div=1.0（変化なし）、200MHz 時は div≈1.33（SCLK≈75MHz）
+    float qspi_div = (float)clock_get_hz(clk_sys) / (75.0f * 1000000.0f * 2.0f);
+    pio_sm_set_clkdiv(qspi.pio, qspi.sm_4wire, qspi_div);
+    pio_sm_set_clkdiv(qspi.pio, qspi.sm_1wire, qspi_div);
+
     pio_sm_set_enabled(qspi.pio, qspi.sm_4wire, false);
     pio_sm_set_enabled(qspi.pio, qspi.sm_1wire, false);
 }

@@ -7,6 +7,8 @@
 #include "boards/waveshare_touch_amoled_1_8/board_config.h"
 #include "drivers/display/amoled_1in8.h"
 #include "drivers/input/ft3168_touch.h"
+#include "drivers/audio/es8311.h"
+#include "drivers/audio/audio_i2s.h"
 #include "emu/gb/gb_core.h"
 #include "storage/rom_flash.h"
 #include "storage/flash_meta.h"
@@ -69,6 +71,61 @@ static int  g_state_slot           = 0;   // 現在のセーブスロット (0-9
 static int  g_sram_dirty_countdown = 0;   // SRAM 自動セーブカウントダウン（60=~1秒）
 static int  g_status_ttl           = 0;   // ステータスバーフラッシュ残フレーム数
 static uint16_t g_status_flash_color = 0; // フラッシュ色
+
+// ── 音声 SPSC リングバッファ ──────────────────────────────────────────────────
+// Producer: Core 0 メインループ（APU サンプル変換後にプッシュ）
+// Consumer: Core 0 DMA IRQ ハンドラ（audio_fill コールバック）
+// SPSC なのでロック不要。wr は Producer のみ更新、rd は Consumer のみ更新。
+#define AFIFO_SIZE  4096u   // 2の冪、~128ms @ 32000 Hz
+
+static uint32_t          s_afifo[AFIFO_SIZE];
+static volatile uint16_t s_afifo_wr = 0;
+static volatile uint16_t s_afifo_rd = 0;
+
+// Bresenham レートコレクション。
+// APU が生成する 535 サンプル/フレームと ES8311 の 32000 Hz のズレを補正する。
+// 目標 = 32000 × 70224 / 4194304 = 535 + 785/1024 サンプル/フレーム
+// → フレームごとに 785 を加算し、1024 を超えたら無音サンプルを 1 つ追加。
+#define BRES_ADDEND  785
+#define BRES_THRESH  1024
+static int s_bres_acc = 0;
+
+// DMA IRQ から呼ばれる音声フィルコールバック（SRAM 配置必須）。
+static void __not_in_flash_func(audio_fill)(uint32_t *dst, int n) {
+    uint16_t rd    = s_afifo_rd;
+    uint16_t wr    = s_afifo_wr;
+    int      avail = (int)(uint16_t)(wr - rd);
+    int      got   = (avail < n) ? avail : n;
+    for (int i = 0; i < got; i++)
+        dst[i] = s_afifo[(rd++) & (AFIFO_SIZE - 1u)];
+    for (int i = got; i < n; i++)
+        dst[i] = 0;   // アンダーランは無音で補完
+    __dmb();
+    s_afifo_rd = rd;
+}
+
+// APU サンプル（S16 ステレオ）→ PIO I2S フォーマット（L<<16|R）変換してプッシュ。
+// Flash 書き込み中は呼ばれないので __not_in_flash_func 不要。
+static void afifo_push_apu(const int16_t *src, int n_pairs, int extra_silence) {
+    uint16_t wr    = s_afifo_wr;
+    uint16_t rd    = s_afifo_rd;
+    int      space = (int)(uint16_t)((uint16_t)(AFIFO_SIZE - 1u) - (wr - rd));
+    int      push  = n_pairs + extra_silence;
+    if (push > space) push = space;   // 溢れる分は捨てる
+    for (int i = 0; i < push && i < n_pairs; i++) {
+        int16_t l = src[2 * i];
+        int16_t r = src[2 * i + 1];
+        s_afifo[(wr++) & (AFIFO_SIZE - 1u)] =
+            ((uint32_t)(uint16_t)l << 16) | (uint16_t)r;
+    }
+    for (int i = n_pairs; i < push; i++)
+        s_afifo[(wr++) & (AFIFO_SIZE - 1u)] = 0;   // 無音補完
+    __dmb();
+    s_afifo_wr = wr;
+}
+
+// APU バッファ（スタックには大きすぎるので static）
+static int16_t s_apu_buf[GB_AUDIO_SAMPLES_TOTAL];
 
 // ── 汎用描画 ─────────────────────────────────────────────────────────────────
 static void fb_fill(int x0, int y0, int x1, int y1, uint16_t c) {
@@ -276,21 +333,33 @@ static void core1_main(void) {
 
 // ── main ─────────────────────────────────────────────────────────────────────
 int main(void) {
-    set_sys_clock_khz(150 * 1000, true);
+    // 200MHz にオーバークロック（RP2350 公式 150MHz だが 200MHz は一般的に安定動作）
+    // GB フレームタイマーは crystal 由来のハードウェアタイマー → クロック変更の影響なし
+    // 音声 MCLK 分周器は clock_get_hz(clk_sys) を実行時に読むので自動補正される
+    set_sys_clock_khz(200 * 1000, true);
     clock_configure(clk_peri, 0,
         CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLKSRC_PLL_SYS,
-        150000000, 150000000);
+        200000000, 200000000);
 
     stdio_init_all();
     sleep_ms(200);
     printf("\n=== AMOLED GB Kaeru ===\n");
 
-    // I2C（FT3168 用）
+    // I2C（FT3168 / ES8311 / QMI8658 共有バス）
     i2c_init(BOARD_I2C, BOARD_I2C_HZ);
     gpio_set_function(BOARD_I2C_SDA, GPIO_FUNC_I2C);
     gpio_set_function(BOARD_I2C_SCL, GPIO_FUNC_I2C);
     gpio_pull_up(BOARD_I2C_SDA);
     gpio_pull_up(BOARD_I2C_SCL);
+
+    // ES8311 音声コーデック初期化（I2C レジスタ設定のみ; MCLK は後で供給）
+    {
+        uint32_t mclk_hz = (uint32_t)AUDIO_I2S_SAMPLE_RATE * 192u;
+        es8311_init(BOARD_I2C, AUDIO_I2S_SAMPLE_RATE, mclk_hz);
+        es8311_set_volume(BOARD_I2C, 60);
+        es8311_mute(BOARD_I2C, false);
+        printf("ES8311: ID=0x%04X\n", es8311_read_id(BOARD_I2C));
+    }
 
     // AMOLED ディスプレイ初期化
     amoled_1in8_init();
@@ -380,6 +449,12 @@ int main(void) {
         printf("SRAM: %s\n", sr == 0 ? "loaded" : "no save");
     }
 
+    // I2S DMA 音声ドライバ起動（Core 0 から呼ぶ → DMA IRQ を Core 0 に登録）
+    // ES8311 は init 済み。audio_i2s_init() が MCLK を供給し ES8311 が BCLK/LRCLK を出力する。
+    audio_i2s_set_fill_cb(audio_fill);
+    audio_i2s_init();
+    printf("Audio: OK\n");
+
     // FT3168 タッチ（ポイントモード）
     ft3168_init(BOARD_I2C, TOUCH_RST_PIN, FT3168_MODE_POINT);
     gpio_init(TOUCH_INT_PIN);
@@ -421,6 +496,17 @@ int main(void) {
 
         gb_core_set_joypad(joypad_from_touch(&touch));
         gb_core_run_frame();
+
+        // APU サンプルをリングバッファへ push
+        // Bresenham で 535 + 785/1024 サンプル/フレーム ≈ 32000 Hz を維持
+        gb_core_fill_audio(s_apu_buf);
+        s_bres_acc += BRES_ADDEND;
+        int extra = 0;
+        if (s_bres_acc >= BRES_THRESH) {
+            s_bres_acc -= BRES_THRESH;
+            extra = 1;
+        }
+        afifo_push_apu(s_apu_buf, GB_AUDIO_SAMPLES, extra);
 
         // SRAM 自動セーブ: dirty 検出後 ~1秒デバウンスで Flash に保存
         if (gb_core_consume_dirty()) g_sram_dirty_countdown = 60;

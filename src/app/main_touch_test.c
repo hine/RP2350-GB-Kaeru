@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include <string.h>
 #include "pico/stdlib.h"
 #include "hardware/i2c.h"
 #include "hardware/clocks.h"
@@ -7,45 +6,44 @@
 #include "drivers/display/amoled_1in8.h"
 #include "drivers/input/ft3168_touch.h"
 
-// Full framebuffer: 368×448×2 bytes = 330 KB
-// Touch markers and status are drawn directly into this buffer.
+// Full framebuffer: 368×448 px × 2 bytes
 static uint16_t s_fb[AMOLED_HEIGHT][AMOLED_WIDTH];
 
-// Big-endian RGB565 color constants (ready for DMA)
-#define C_BG     AMOLED_COLOR(0x2104)  // dark gray
-#define C_RED    AMOLED_COLOR(0xF800)
-#define C_BLUE   AMOLED_COLOR(0x001F)
-#define C_GREEN  AMOLED_COLOR(0x07E0)  // status: 1 finger
-#define C_YELLOW AMOLED_COLOR(0xFFE0)  // status: 2 fingers
-#define C_BLACK  AMOLED_COLOR(0x0000)  // status: 0 fingers
+// Big-endian RGB565
+#define C(c)    AMOLED_COLOR(c)
+#define C_GRAY   C(0x2104)
+#define C_BLACK  C(0x0000)
+#define C_WHITE  C(0xFFFF)
+#define C_RED    C(0xF800)
+#define C_GREEN  C(0x07E0)
+#define C_BLUE   C(0x001F)
+#define C_CYAN   C(0x07FF)
+#define C_MAGENTA C(0xF81F)
+#define C_YELLOW C(0xFFE0)
+#define C_ORANGE C(0xFC00)
 
-#define STATUS_H 40  // top status strip height
-
-static volatile bool g_touch_flag = false;
+static volatile bool g_irq_flag = false;
 
 static void touch_irq_cb(uint gpio, uint32_t events) {
     (void)events;
-    if (gpio == TOUCH_INT_PIN) g_touch_flag = true;
+    if (gpio == TOUCH_INT_PIN) g_irq_flag = true;
 }
 
-static void fb_rect(int x, int y, int w, int h, uint16_t color) {
-    int x0 = x < 0 ? 0 : x;
-    int y0 = y < 0 ? 0 : y;
-    int x1 = (x + w) > AMOLED_WIDTH  ? AMOLED_WIDTH  : (x + w);
-    int y1 = (y + h) > AMOLED_HEIGHT ? AMOLED_HEIGHT : (y + h);
-    for (int j = y0; j < y1; j++)
-        for (int i = x0; i < x1; i++)
+static void fill_screen(uint16_t color) {
+    for (int j = 0; j < AMOLED_HEIGHT; j++)
+        for (int i = 0; i < AMOLED_WIDTH; i++)
             s_fb[j][i] = color;
 }
 
-// Draw a crosshair (horizontal + vertical bar) centred at (cx, cy)
-static void fb_cross(int cx, int cy, uint16_t color) {
-    fb_rect(cx - 20, cy -  2, 40, 4, color);  // horizontal bar
-    fb_rect(cx -  2, cy - 20, 4, 40, color);  // vertical bar
+// I2C ヘルパー（ドライバを介さず直接1バイト読み出し）
+static uint8_t read_reg(uint8_t reg) {
+    uint8_t val = 0;
+    i2c_write_blocking(BOARD_I2C, FT3168_I2C_ADDR, &reg, 1, true);
+    i2c_read_blocking(BOARD_I2C, FT3168_I2C_ADDR, &val, 1, false);
+    return val;
 }
 
 int main(void) {
-    // System clock: 150 MHz (same as PicoCalc build)
     set_sys_clock_khz(150 * 1000, true);
     clock_configure(clk_peri, 0,
         CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLKSRC_PLL_SYS,
@@ -53,9 +51,10 @@ int main(void) {
 
     stdio_init_all();
     sleep_ms(200);
-    printf("\n=== AMOLED 2-touch test ===\n");
+    printf("\n=== FT3168 Gesture Mode Test ===\n");
+    printf("Gestures: swipe up/down/left/right, tap, double-tap\n\n");
 
-    // I2C — shared by FT3168
+    // I2C
     i2c_init(BOARD_I2C, BOARD_I2C_HZ);
     gpio_set_function(BOARD_I2C_SDA, GPIO_FUNC_I2C);
     gpio_set_function(BOARD_I2C_SCL, GPIO_FUNC_I2C);
@@ -65,68 +64,69 @@ int main(void) {
     // Display
     amoled_1in8_init();
     amoled_1in8_set_brightness(80);
-
-    // Initial screen: dark background + black status strip
-    fb_rect(0, 0, AMOLED_WIDTH, AMOLED_HEIGHT, C_BG);
-    fb_rect(0, 0, AMOLED_WIDTH, STATUS_H, C_BLACK);
+    fill_screen(C_GRAY);
     amoled_1in8_display((const uint16_t *)s_fb);
 
-    // FT3168 touch
-    ft3168_init(BOARD_I2C, TOUCH_RST_PIN, FT3168_MODE_POINT);
+    // FT3168 — GESTURE MODE
+    ft3168_init(BOARD_I2C, TOUCH_RST_PIN, FT3168_MODE_GESTURE);
 
+    // INT: EDGE_RISE（Waveshare デモと同じ）
     gpio_init(TOUCH_INT_PIN);
     gpio_pull_up(TOUCH_INT_PIN);
     gpio_set_dir(TOUCH_INT_PIN, GPIO_IN);
     gpio_set_irq_enabled_with_callback(TOUCH_INT_PIN,
         GPIO_IRQ_EDGE_RISE, true, touch_irq_cb);
 
-    printf("Ready — touch the screen\n");
-
-    // Track previous positions to erase them
-    int      prev_n      = 0;
-    uint16_t prev_x[2]   = {0, 0};
-    uint16_t prev_y[2]   = {0, 0};
-    uint16_t pt_color[2] = {C_RED, C_BLUE};
-    uint16_t status_lut[3] = {C_BLACK, C_GREEN, C_YELLOW};
+    printf("Ready. Try: swipe up/down/left/right, single tap, double tap\n\n");
 
     while (true) {
-        if (!g_touch_flag) {
+        if (!g_irq_flag) {
             tight_loop_contents();
             continue;
         }
-        g_touch_flag = false;
+        g_irq_flag = false;
 
-        ft3168_data_t td;
-        ft3168_read(BOARD_I2C, &td);
+        // reg 0xD3: Waveshare 独自ジェスチャーレジスタ
+        uint8_t g_ws  = read_reg(0xD3);
+        // reg 0x01: 標準ジェスチャーレジスタ（データシート記載）
+        uint8_t g_std = read_reg(0x01);
+        // reg 0x02: タッチ点数（ジェスチャー認識時に何が入るか確認用）
+        uint8_t n     = read_reg(0x02) & 0x0F;
 
-        // Serial output for debugging
-        printf("n=%d", td.n_points);
-        for (int i = 0; i < td.n_points; i++)
-            printf("  p%d=(%3d,%3d) ev=%d", i, td.p[i].x, td.p[i].y, td.p[i].event);
-        printf("\n");
+        // ── 色と名称を決定 ──────────────────────────────────────────────────
+        uint16_t   bg_color;
+        const char *name;
 
-        // Erase old crosshairs
-        for (int i = 0; i < prev_n; i++)
-            fb_cross(prev_x[i], prev_y[i], C_BG);
-
-        // Update status strip
-        uint16_t sc = (td.n_points <= 2) ? status_lut[td.n_points] : C_BLACK;
-        fb_rect(0, 0, AMOLED_WIDTH, STATUS_H, sc);
-
-        // Draw new crosshairs
-        int new_n = 0;
-        for (int i = 0; i < td.n_points && i < 2; i++) {
-            if (td.p[i].event == 1) continue;  // skip lift-up
-            int cx = (int)td.p[i].x;
-            int cy = (int)td.p[i].y;
-            if (cy < STATUS_H) cy = STATUS_H;  // keep below status strip
-            fb_cross(cx, cy, pt_color[i]);
-            prev_x[new_n] = (uint16_t)cx;
-            prev_y[new_n] = (uint16_t)cy;
-            new_n++;
+        switch ((ft3168_gesture_t)g_ws) {
+            case FT3168_GESTURE_UP:           bg_color = C_GREEN;   name = "UP";           break;
+            case FT3168_GESTURE_DOWN:         bg_color = C_BLUE;    name = "DOWN";         break;
+            case FT3168_GESTURE_LEFT:         bg_color = C_MAGENTA; name = "LEFT";         break;
+            case FT3168_GESTURE_RIGHT:        bg_color = C_CYAN;    name = "RIGHT";        break;
+            case FT3168_GESTURE_CLICK:        bg_color = C_WHITE;   name = "CLICK";        break;
+            case FT3168_GESTURE_DOUBLE_CLICK: bg_color = C_YELLOW;  name = "DOUBLE_CLICK"; break;
+            case FT3168_GESTURE_NONE:
+            default:
+                bg_color = C_GRAY;
+                name = (g_ws == 0) ? "NONE" : "UNKNOWN";
+                break;
         }
-        prev_n = new_n;
 
+        // ── 出力 ────────────────────────────────────────────────────────────
+        printf("IRQ: 0xD3=%02X  0x01=%02X  n=%d  -> %s\n",
+               g_ws, g_std, n, name);
+
+        // 画面全体を色で塗り替え（ジェスチャーが視覚的に分かる）
+        fill_screen(bg_color);
         amoled_1in8_display((const uint16_t *)s_fb);
+
+        // NONE の場合は少し待ってからグレーに戻す
+        if (g_ws == FT3168_GESTURE_NONE || name[0] == 'U') {
+            // UNKNOWN/NONE は変化なし（すでに適切な色）
+        } else {
+            // 表示を 500ms 維持してからグレーに戻す
+            sleep_ms(500);
+            fill_screen(C_GRAY);
+            amoled_1in8_display((const uint16_t *)s_fb);
+        }
     }
 }

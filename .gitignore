@@ -11,3 +11,5 @@ roms/*.gbc
 saves/*
 *.sav
 *.state
+
+samples/
