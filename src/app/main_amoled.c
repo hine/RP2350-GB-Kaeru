@@ -211,8 +211,11 @@ static uint8_t s_btn_joy    = 0xFF;  // ゲームボタン bits
 // FT3168 が ev=1(離し)を送らないため、IRQ が N フレーム来なければ「指離れ」と判定する
 static int     s_touch_age  = 0;     // 最後の IRQ から経過フレーム数
 #define TOUCH_LIFT_FRAMES 4          // この値以上なら指が離れたとみなす
-// システムボタンのゾーン進入追跡（同一ゾーン保持中の多重発火を防ぐ）
-static int     s_touch_zone = -1;    // -1=未タッチ, 0=status, 1=sys, 2=game, 3=btn
+// ゾーン進入追跡
+static int     s_touch_zone        = -1;    // -1=未タッチ, 0=status, 1=sys, 2=game, 3=btn
+// D-Pad セッションフラグ: ゲームエリアに一度でも入ったセッションでは
+// 他のゾーン（sys_btn / game_btn）への誤入力を発火させない
+static bool    s_touched_game_area = false;
 
 // ── 音声 SPSC リングバッファ ─────────────────────────────────────────────────
 // GB_AUDIO_SAMPLES / GB_AUDIO_SAMPLES_TOTAL は gb_core.h で定義済み
@@ -491,28 +494,31 @@ static void process_touch(const ft3168_data_t *td) {
             s_btn_joy = 0xFF;
             break;
 
-        case 1:  // システムボタン: ゾーン初入時に一度だけ実行
+        case 1:  // システムボタン: ゾーン初入かつ D-Pad セッションでないときのみ実行
             g_dpad_active = false;
             s_btn_joy = 0xFF;
-            if (new_zone)
+            if (new_zone && !s_touched_game_area)
                 handle_sys_btn(tx / BTN_COL_W);
             break;
 
-        case 2:  // ゲームエリア: D-Pad（現在位置をそのまま使う）
+        case 2:  // ゲームエリア: D-Pad セッション開始・継続
+            s_touched_game_area = true;  // このセッションを D-Pad セッションとしてマーク
             s_btn_joy = 0xFF;
             g_dpad_active = true;
             g_dpad_cx = (int16_t)tx;
             g_dpad_cy = (int16_t)ty;
             break;
 
-        case 3:  // ゲームボタン: 押している間ビットを立て続ける
+        case 3:  // ゲームボタン: D-Pad セッション中は無効
             g_dpad_active = false;
             s_btn_joy = 0xFF;
-            switch (tx / BTN_COL_W) {
-                case 0: s_btn_joy &= ~JOYPAD_SELECT; break;
-                case 1: s_btn_joy &= ~JOYPAD_START;  break;
-                case 2: s_btn_joy &= ~JOYPAD_B;      break;
-                case 3: s_btn_joy &= ~JOYPAD_A;      break;
+            if (!s_touched_game_area) {
+                switch (tx / BTN_COL_W) {
+                    case 0: s_btn_joy &= ~JOYPAD_SELECT; break;
+                    case 1: s_btn_joy &= ~JOYPAD_START;  break;
+                    case 2: s_btn_joy &= ~JOYPAD_B;      break;
+                    case 3: s_btn_joy &= ~JOYPAD_A;      break;
+                }
             }
             break;
     }
@@ -742,9 +748,10 @@ int main(void) {
                 s_touch_age++;
             }
             if (s_touch_age >= TOUCH_LIFT_FRAMES && s_touch_zone != -1) {
-                g_dpad_active = false;
-                s_btn_joy     = 0xFF;
-                s_touch_zone  = -1;
+                g_dpad_active       = false;
+                s_btn_joy           = 0xFF;
+                s_touch_zone        = -1;
+                s_touched_game_area = false;  // 次のセッションは新規
             }
         }
 
