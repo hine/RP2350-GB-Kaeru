@@ -469,7 +469,9 @@ int main(void) {
     // 【制限】USB 給電中のみ安全。バッテリー使用時は長押し電源 OFF に注意。
     gpio_init(SYS_OUT_PIN);
     gpio_set_dir(SYS_OUT_PIN, GPIO_IN);
-    gpio_disable_pulls(SYS_OUT_PIN);  // 外部 R13(1K) プルアップ・R25(10K) プルダウンあり
+    gpio_pull_up(SYS_OUT_PIN);  // BSS138 OFF 時（押下中）に HIGH へ引き上げる
+    sleep_ms(1);
+    printf("SYS_OUT (GPIO18) initial = %d\n", gpio_get(SYS_OUT_PIN));
 
     // FT3168 タッチ（ポイントモード）
     ft3168_init(BOARD_I2C, TOUCH_RST_PIN, FT3168_MODE_POINT);
@@ -514,7 +516,13 @@ int main(void) {
         // SYS_OUT_PIN（GPIO18）: BSS138 反転 → HIGH = 押下（active-high）。
         // タッチ A ゾーン（右下象限）も引き続き有効。
         uint8_t joy = joypad_from_touch(&touch);
-        if (gpio_get(SYS_OUT_PIN)) joy &= ~JOYPAD_A;
+        bool pwr = gpio_get(SYS_OUT_PIN);
+        static bool pwr_prev = false;
+        if (pwr != pwr_prev) {
+            printf("SYS_OUT (GPIO18): %d -> %d\n", pwr_prev, pwr);
+            pwr_prev = pwr;
+        }
+        if (pwr) joy &= ~JOYPAD_A;
         gb_core_set_joypad(joy);
         gb_core_run_frame();
 
