@@ -45,6 +45,8 @@
 #define DPAD_DEAD    20
 // D-Pad オーバーレイ矩形のハーフサイズ
 #define DPAD_BOX     50
+#define DPAD_REF_X   (AMOLED_WIDTH / 2)               // 184: ゲームエリア中央 X
+#define DPAD_REF_Y   ((GB_Y_OFF + GAME_BTN_Y) / 2)    // 232: ゲームエリア中央 Y
 
 // ── UI カラー ─────────────────────────────────────────────────────────────────
 #define COL_STATUS_BG   AMOLED_COLOR(0x1082)   // ステータスバー: 暗いグレー
@@ -204,8 +206,13 @@ static repeating_timer_t   g_frame_timer;  // handle_sys_btn からも参照
 static int  g_state_slot           = 0;
 static int  g_sram_dirty_countdown = 0;
 
-// ── タッチ由来のジョイパッド（Core 0 だけが読み書き） ───────────────────────
-static uint8_t s_btn_joy = 0xFF;  // ゲームボタン bits（持続: 指が離れるまで有効）
+// ── タッチ入力状態（Core 0 だけが読み書き） ─────────────────────────────────
+static uint8_t s_btn_joy    = 0xFF;  // ゲームボタン bits
+// FT3168 が ev=1(離し)を送らないため、IRQ が N フレーム来なければ「指離れ」と判定する
+static int     s_touch_age  = 0;     // 最後の IRQ から経過フレーム数
+#define TOUCH_LIFT_FRAMES 4          // この値以上なら指が離れたとみなす
+// システムボタンのゾーン進入追跡（同一ゾーン保持中の多重発火を防ぐ）
+static int     s_touch_zone = -1;    // -1=未タッチ, 0=status, 1=sys, 2=game, 3=btn
 
 // ── 音声 SPSC リングバッファ ─────────────────────────────────────────────────
 // GB_AUDIO_SAMPLES / GB_AUDIO_SAMPLES_TOTAL は gb_core.h で定義済み
@@ -369,19 +376,19 @@ static void draw_game_buttons(void) {
 
 // ── D-Pad オーバーレイ（Core 1 から毎フレーム呼ぶ、active 時のみ） ──────────
 static void draw_dpad_overlay(void) {
-    int ox = g_dpad_ox, oy = g_dpad_oy;
     int cx = g_dpad_cx, cy = g_dpad_cy;
 
-    // 矩形枠（原点中心 DPAD_BOX×DPAD_BOX px）
-    fb_rect(ox - DPAD_BOX, oy - DPAD_BOX,
-            ox + DPAD_BOX, oy + DPAD_BOX, COL_DPAD_BOX);
+    // 基準中央に十字（方向感覚の目安）
+    fb_fill(DPAD_REF_X - DPAD_BOX, DPAD_REF_Y - 1,
+            DPAD_REF_X + DPAD_BOX, DPAD_REF_Y + 1, COL_DPAD_BOX);
+    fb_fill(DPAD_REF_X - 1, DPAD_REF_Y - DPAD_BOX,
+            DPAD_REF_X + 1, DPAD_REF_Y + DPAD_BOX, COL_DPAD_BOX);
 
-    // デッドゾーン十字線（細い）
-    int dead = DPAD_DEAD;
-    fb_fill(ox - dead, oy - 1, ox + dead, oy + 1, COL_DPAD_BOX);
-    fb_fill(ox - 1, oy - dead, ox + 1, oy + dead, COL_DPAD_BOX);
+    // デッドゾーン矩形
+    fb_rect(DPAD_REF_X - DPAD_DEAD, DPAD_REF_Y - DPAD_DEAD,
+            DPAD_REF_X + DPAD_DEAD, DPAD_REF_Y + DPAD_DEAD, COL_DPAD_BOX);
 
-    // 現在位置インジケーター（小さな十字）
+    // 現在のタッチ位置（白い小十字）
     fb_fill(cx - 3, cy - 1, cx + 3, cy + 1, COL_WHITE);
     fb_fill(cx - 1, cy - 3, cx + 1, cy + 3, COL_WHITE);
 }
@@ -414,8 +421,6 @@ static void do_load_state(void) {
 
 // ── タッチ入力処理 ───────────────────────────────────────────────────────────
 // システムボタン（押下時に一度だけ実行）
-static bool frame_timer_cb(repeating_timer_t *rt);  // forward decl
-
 // ── メニュー / ポーズ操作 ────────────────────────────────────────────────────
 // PicoCalc キーとの対応:
 //   MENU(col0) = ESC : ゲームをポーズしてメニュー表示
@@ -424,19 +429,19 @@ static bool frame_timer_cb(repeating_timer_t *rt);  // forward decl
 //   SLOT(col3) = F4  : スロット切り替え
 
 static void do_menu_open(void) {
-    cancel_repeating_timer(&g_frame_timer);
+    // フレームタイマーはキャンセルしない（タイマーが止まると while(!g_frame_tick) で
+    // 永久にブロックしてしまい、MENU 再タップを受け付けられなくなる）
     g_menu_active = true;
     g_dpad_active = false;
     s_btn_joy     = 0xFF;
     strncpy((char *)g_status_msg, "PAUSED", sizeof(g_status_msg));
-    g_status_ttl  = 9999;  // メニュー閉じるまで表示
+    g_status_ttl  = 9999;
     printf("Menu: open\n");
 }
 
 static void do_menu_close(void) {
     g_menu_active = false;
     g_status_ttl  = 0;
-    add_repeating_timer_us(-16743, frame_timer_cb, NULL, &g_frame_timer);
     printf("Menu: close\n");
 }
 
@@ -457,63 +462,71 @@ static void handle_sys_btn(int col) {
     }
 }
 
-// process_touch: IRQ 発火時にタッチ状態（持続変数）を更新する。
-// ジョイパッドビットの計算は毎フレーム compute_touch_joy() で行う。
+// process_touch: IRQ 発火時にタッチ状態を更新する。
+//
+// FT3168 の実機挙動（確認済み）:
+//   - 常に ev=2（接触継続）しか送らない。ev=0（押下開始）・ev=1（離し）は来ない。
+//   - 「新規押下」検出: ゾーンが変わったとき (new_zone) に一度だけアクションを実行。
+//   - 「指離れ」検出: IRQ が TOUCH_LIFT_FRAMES 以上来なくなったら離れたとみなす
+//                     （main ループ側のタイムアウト処理に委ねる）。
 static void process_touch(const ft3168_data_t *td) {
-    if (td->n_points == 0 || td->p[0].event == 1) {
-        // 指が離れた: 全状態をリセット
-        g_dpad_active = false;
-        s_btn_joy     = 0xFF;
-        return;
-    }
+    if (td->n_points == 0) return;  // データなし（念のため）
 
     int tx = (int)td->p[0].x;
     int ty = (int)td->p[0].y;
-    int ev = td->p[0].event;
 
-    if (ty < STATUS_H) return;
+    // ゾーン判定
+    int zone;
+    if      (ty < STATUS_H)    zone = 0;  // ステータスバー
+    else if (ty < GB_Y_OFF)    zone = 1;  // システムボタン
+    else if (ty < GAME_BTN_Y)  zone = 2;  // ゲームエリア (D-Pad)
+    else                       zone = 3;  // ゲームボタン
 
-    if (ty < GB_Y_OFF) {
-        // システムボタンゾーン
-        g_dpad_active = false;
-        s_btn_joy     = 0xFF;
-        if (ev == 0)
-            handle_sys_btn(tx / BTN_COL_W);
-        return;
-    }
+    bool new_zone = (zone != s_touch_zone);
+    s_touch_zone = zone;
 
-    if (ty < GAME_BTN_Y) {
-        // ゲームエリア: フローティング D-Pad
-        s_btn_joy = 0xFF;
-        if (ev == 0) {
+    switch (zone) {
+        case 0:  // ステータスバー: 何もしない
+            g_dpad_active = false;
+            s_btn_joy = 0xFF;
+            break;
+
+        case 1:  // システムボタン: ゾーン初入時に一度だけ実行
+            g_dpad_active = false;
+            s_btn_joy = 0xFF;
+            if (new_zone)
+                handle_sys_btn(tx / BTN_COL_W);
+            break;
+
+        case 2:  // ゲームエリア: D-Pad（現在位置をそのまま使う）
+            s_btn_joy = 0xFF;
             g_dpad_active = true;
-            g_dpad_ox = (int16_t)tx;
-            g_dpad_oy = (int16_t)ty;
-        }
-        if (g_dpad_active) {
             g_dpad_cx = (int16_t)tx;
             g_dpad_cy = (int16_t)ty;
-        }
-        return;
-    }
+            break;
 
-    // ゲームボタンゾーン
-    g_dpad_active = false;
-    s_btn_joy = 0xFF;
-    switch (tx / BTN_COL_W) {
-        case 0: s_btn_joy &= ~JOYPAD_SELECT; break;
-        case 1: s_btn_joy &= ~JOYPAD_START;  break;
-        case 2: s_btn_joy &= ~JOYPAD_B;      break;
-        case 3: s_btn_joy &= ~JOYPAD_A;      break;
+        case 3:  // ゲームボタン: 押している間ビットを立て続ける
+            g_dpad_active = false;
+            s_btn_joy = 0xFF;
+            switch (tx / BTN_COL_W) {
+                case 0: s_btn_joy &= ~JOYPAD_SELECT; break;
+                case 1: s_btn_joy &= ~JOYPAD_START;  break;
+                case 2: s_btn_joy &= ~JOYPAD_B;      break;
+                case 3: s_btn_joy &= ~JOYPAD_A;      break;
+            }
+            break;
     }
 }
 
-// 毎フレーム呼び出し: 持続状態から D-Pad ビットを計算する
+// ゲームエリア中央座標（D-Pad の方向判定基準点）
+// 毎フレーム呼び出し: タッチ位置をゲームエリア中央基準で方向判定する。
+// フローティング方式では FT3168 の連続 IRQ が必要で安定しないため、
+// タッチ位置（cx,cy）を固定中央(REF)からの変位で判定する方式に変更。
 static uint8_t compute_dpad_joy(void) {
     if (!g_dpad_active) return 0xFF;
     uint8_t joy = 0xFF;
-    int dx = (int)g_dpad_cx - (int)g_dpad_ox;
-    int dy = (int)g_dpad_cy - (int)g_dpad_oy;
+    int dx = (int)g_dpad_cx - DPAD_REF_X;
+    int dy = (int)g_dpad_cy - DPAD_REF_Y;
     if (dy < -DPAD_DEAD) joy &= ~JOYPAD_UP;
     if (dy >  DPAD_DEAD) joy &= ~JOYPAD_DOWN;
     if (dx < -DPAD_DEAD) joy &= ~JOYPAD_LEFT;
@@ -720,8 +733,19 @@ int main(void) {
         // タッチ読み取りと入力処理
         if (g_touch_flag) {
             g_touch_flag = false;
+            s_touch_age = 0;
             ft3168_read(BOARD_I2C, &touch);
             process_touch(&touch);
+        } else {
+            // IRQ が来ない間カウントアップ → TOUCH_LIFT_FRAMES 到達で「指離れ」扱い
+            if (s_touch_age < TOUCH_LIFT_FRAMES) {
+                s_touch_age++;
+            }
+            if (s_touch_age >= TOUCH_LIFT_FRAMES && s_touch_zone != -1) {
+                g_dpad_active = false;
+                s_btn_joy     = 0xFF;
+                s_touch_zone  = -1;
+            }
         }
 
         // ポーズ中はゲーム進行をスキップ
