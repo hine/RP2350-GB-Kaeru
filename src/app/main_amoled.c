@@ -466,7 +466,7 @@ int main(void) {
     // 【制限】USB 給電中のみ安全。バッテリー使用時は長押し電源 OFF に注意。
     gpio_init(SYS_OUT_PIN);
     gpio_set_dir(SYS_OUT_PIN, GPIO_IN);
-    gpio_pull_up(SYS_OUT_PIN);   // オープンドレインの "OFF" 状態を HIGH に引き上げ
+    gpio_disable_pulls(SYS_OUT_PIN);   // 外部 10kΩ プルアップ（3.3V）あり、内部プル不要
 
     // FT3168 タッチ（ポイントモード）
     ft3168_init(BOARD_I2C, TOUCH_RST_PIN, FT3168_MODE_POINT);
