@@ -63,12 +63,6 @@ static volatile int      g_lcd_idx    = 0;       // Core 1 が読む GB バッ�
 static volatile bool     g_lcd_busy   = false;   // Core 1 が描画中
 static volatile bool     g_frame_tick = false;   // フレームタイマー
 static volatile bool     g_touch_flag  = false;  // タッチ IRQ フラグ
-// POWER ボタン A 保持カウンター（フレーム数）。
-// GPIO18 は押下中に LOW を維持せず、離したときだけ FALLING edge を 1 回出す。
-// FALLING edge 検出ごとにカウンターをセットし、フレームごとに 1 減算する方式。
-static volatile int      g_pwr_a_frames = 0;
-// ~333ms（@ 60fps）。長押し相当は連続タップで延長できる。
-#define PWR_A_HOLD_FRAMES 20
 
 static int g_gb_write = 0;   // Core 0 が書き込む GB バッファ番号
 
@@ -311,15 +305,10 @@ static uint8_t joypad_from_touch(const ft3168_data_t *td) {
 // FT3168 と POWER ボタンの GPIO IRQ を1つのハンドラに統合。
 // pico-sdk は Core 単位でコールバックが1つだけ設定できる。
 //
-// POWER ボタン（GPIO18）のハードウェア挙動（実機確認）:
-//   押している間は HIGH を維持し、離したときだけ FALLING edge を 1 回出す。
-//   → FALLING edge ごとに g_pwr_a_frames をセットし、フレームごとに 1 減算。
-//   → タップ 1 回 = A を PWR_A_HOLD_FRAMES フレーム保持。連続タップで延長可能。
+// FT3168 タッチ IRQ のみ処理。POWER ボタンはポーリング（gpio_get）で読む。
 static void gpio_irq_handler(uint gpio, uint32_t events) {
     if (gpio == TOUCH_INT_PIN && (events & GPIO_IRQ_EDGE_RISE))
         g_touch_flag = true;
-    if (gpio == SYS_OUT_PIN && (events & GPIO_IRQ_EDGE_FALL))
-        g_pwr_a_frames = PWR_A_HOLD_FRAMES;
 }
 
 static bool frame_timer_cb(repeating_timer_t *rt) {
@@ -470,24 +459,21 @@ int main(void) {
     audio_i2s_init();
     printf("Audio: OK\n");
 
-    // POWER ボタン（GPIO18 = SYS_OUT_PIN）入力設定。
-    // 押下時・離し時に LOW パルスが 1 回ずつ発生する（IRQ で検出）。
-    // 【重要な制限】USB 給電中のみ安全。バッテリー使用時は長押し電源 OFF に注意。
+    // POWER ボタン（GPIO18 = SYS_OUT_PIN）: active-high（押下 = HIGH）。
+    // board_config.h のコメント "active-high power key" が正しい。
+    // pull_down でデフォルト LOW を保証し、gpio_get() でポーリング検出する。
+    // 【制限】USB 給電中のみ安全。バッテリー使用時は長押し電源 OFF に注意。
     gpio_init(SYS_OUT_PIN);
     gpio_set_dir(SYS_OUT_PIN, GPIO_IN);
-    gpio_pull_up(SYS_OUT_PIN);
+    gpio_pull_down(SYS_OUT_PIN);   // デフォルト LOW = 未押下
 
     // FT3168 タッチ（ポイントモード）
     ft3168_init(BOARD_I2C, TOUCH_RST_PIN, FT3168_MODE_POINT);
     gpio_init(TOUCH_INT_PIN);
     gpio_pull_up(TOUCH_INT_PIN);
     gpio_set_dir(TOUCH_INT_PIN, GPIO_IN);
-
-    // FT3168（EDGE_RISE）と POWER ボタン（EDGE_FALL）を同一ハンドラで受ける。
-    // pico-sdk はコアごとに GPIO コールバックが 1 つだけ設定できる仕様のため統合。
     gpio_set_irq_enabled_with_callback(TOUCH_INT_PIN,
         GPIO_IRQ_EDGE_RISE, true, gpio_irq_handler);
-    gpio_set_irq_enabled(SYS_OUT_PIN, GPIO_IRQ_EDGE_FALL, true);
 
     // Core 1 起動（フレームレンダリング + AMOLED 転送担当）
     multicore_launch_core1(core1_main);
@@ -521,13 +507,10 @@ int main(void) {
         }
 
         // タッチ + POWER 物理ボタンを合成してジョイパッドをセット。
-        // g_pwr_a_frames > 0 の間は A を保持。フレームごとに 1 減算。
+        // SYS_OUT_PIN（GPIO18）: HIGH = 押下（active-high）。押している間 HIGH を維持。
         // タッチ A ゾーン（右下象限）も引き続き有効。
         uint8_t joy = joypad_from_touch(&touch);
-        if (g_pwr_a_frames > 0) {
-            joy &= ~JOYPAD_A;
-            g_pwr_a_frames--;
-        }
+        if (gpio_get(SYS_OUT_PIN)) joy &= ~JOYPAD_A;
         gb_core_set_joypad(joy);
         gb_core_run_frame();
 
