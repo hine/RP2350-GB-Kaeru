@@ -62,8 +62,13 @@ static volatile uint8_t  g_joypad     = 0xFF;   // Core 0 が参照
 static volatile int      g_lcd_idx    = 0;       // Core 1 が読む GB バッファ番号
 static volatile bool     g_lcd_busy   = false;   // Core 1 が描画中
 static volatile bool     g_frame_tick = false;   // フレームタイマー
-static volatile bool     g_touch_flag = false;   // タッチ IRQ フラグ
-static volatile bool     g_pwr_a_held = false;   // POWER ボタン A 保持フラグ
+static volatile bool     g_touch_flag  = false;  // タッチ IRQ フラグ
+// POWER ボタン A 保持カウンター（フレーム数）。
+// GPIO18 は押下中に LOW を維持せず、離したときだけ FALLING edge を 1 回出す。
+// FALLING edge 検出ごとにカウンターをセットし、フレームごとに 1 減算する方式。
+static volatile int      g_pwr_a_frames = 0;
+// ~333ms（@ 60fps）。長押し相当は連続タップで延長できる。
+#define PWR_A_HOLD_FRAMES 20
 
 static int g_gb_write = 0;   // Core 0 が書き込む GB バッファ番号
 
@@ -307,14 +312,14 @@ static uint8_t joypad_from_touch(const ft3168_data_t *td) {
 // pico-sdk は Core 単位でコールバックが1つだけ設定できる。
 //
 // POWER ボタン（GPIO18）のハードウェア挙動（実機確認）:
-//   押下時に LOW パルス 1 回、離し時に LOW パルス 1 回 それぞれ発生する。
-//   押している間ずっと LOW になるわけではない（ポーリングでは取れない）。
-//   → FALLING edge ごとにトグルすることで「押下→A ON、離し→A OFF」を実現。
+//   押している間は HIGH を維持し、離したときだけ FALLING edge を 1 回出す。
+//   → FALLING edge ごとに g_pwr_a_frames をセットし、フレームごとに 1 減算。
+//   → タップ 1 回 = A を PWR_A_HOLD_FRAMES フレーム保持。連続タップで延長可能。
 static void gpio_irq_handler(uint gpio, uint32_t events) {
     if (gpio == TOUCH_INT_PIN && (events & GPIO_IRQ_EDGE_RISE))
         g_touch_flag = true;
     if (gpio == SYS_OUT_PIN && (events & GPIO_IRQ_EDGE_FALL))
-        g_pwr_a_held = !g_pwr_a_held;
+        g_pwr_a_frames = PWR_A_HOLD_FRAMES;
 }
 
 static bool frame_timer_cb(repeating_timer_t *rt) {
@@ -516,10 +521,13 @@ int main(void) {
         }
 
         // タッチ + POWER 物理ボタンを合成してジョイパッドをセット。
-        // g_pwr_a_held は IRQ ハンドラが FALLING edge ごとにトグルする。
+        // g_pwr_a_frames > 0 の間は A を保持。フレームごとに 1 減算。
         // タッチ A ゾーン（右下象限）も引き続き有効。
         uint8_t joy = joypad_from_touch(&touch);
-        if (g_pwr_a_held) joy &= ~JOYPAD_A;
+        if (g_pwr_a_frames > 0) {
+            joy &= ~JOYPAD_A;
+            g_pwr_a_frames--;
+        }
         gb_core_set_joypad(joy);
         gb_core_run_frame();
 
