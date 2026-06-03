@@ -459,13 +459,14 @@ int main(void) {
     audio_i2s_init();
     printf("Audio: OK\n");
 
-    // POWER ボタン（GPIO18 = SYS_OUT_PIN）: active-high（押下 = HIGH）。
-    // board_config.h のコメント "active-high power key" が正しい。
-    // pull_down でデフォルト LOW を保証し、gpio_get() でポーリング検出する。
+    // POWER ボタン（GPIO18 = SYS_OUT_PIN）: BSS138 オープンドレイン出力。
+    //   BSS138 OFF（未押下）: ドレイン浮き → pull_up で HIGH
+    //   BSS138 ON （押下時）: ドレイン GND  → LOW
+    // → active-LOW: !gpio_get() = true のとき A 押下。
     // 【制限】USB 給電中のみ安全。バッテリー使用時は長押し電源 OFF に注意。
     gpio_init(SYS_OUT_PIN);
     gpio_set_dir(SYS_OUT_PIN, GPIO_IN);
-    gpio_pull_down(SYS_OUT_PIN);   // デフォルト LOW = 未押下
+    gpio_pull_up(SYS_OUT_PIN);   // オープンドレインの "OFF" 状態を HIGH に引き上げ
 
     // FT3168 タッチ（ポイントモード）
     ft3168_init(BOARD_I2C, TOUCH_RST_PIN, FT3168_MODE_POINT);
@@ -507,10 +508,10 @@ int main(void) {
         }
 
         // タッチ + POWER 物理ボタンを合成してジョイパッドをセット。
-        // SYS_OUT_PIN（GPIO18）: HIGH = 押下（active-high）。押している間 HIGH を維持。
+        // SYS_OUT_PIN（GPIO18）: BSS138 オープンドレイン → LOW = 押下（active-low）。
         // タッチ A ゾーン（右下象限）も引き続き有効。
         uint8_t joy = joypad_from_touch(&touch);
-        if (gpio_get(SYS_OUT_PIN)) joy &= ~JOYPAD_A;
+        if (!gpio_get(SYS_OUT_PIN)) joy &= ~JOYPAD_A;
         gb_core_set_joypad(joy);
         gb_core_run_frame();
 
