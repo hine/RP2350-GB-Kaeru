@@ -65,10 +65,12 @@
 #define COL_ICON_SD     AMOLED_COLOR(0x041F)   // 青: SD 書き込み
 #define COL_ICON_FLASH  AMOLED_COLOR(0xFFE0)   // 黄: Flash 書き込み
 
-// ── DMG Green パレット ────────────────────────────────────────────────────────
+// ── DMG Green パレット（#9BBC0F / #8BAC0F / #306230 / #0F380F） ──────────────
 static const uint16_t s_pal[4] = {
-    AMOLED_COLOR(0x9BF3), AMOLED_COLOR(0x6B8E),
-    AMOLED_COLOR(0x3A68), AMOLED_COLOR(0x1925),
+    AMOLED_COLOR(0x9DE1),   // 最明
+    AMOLED_COLOR(0x8D61),   // 中明
+    AMOLED_COLOR(0x3306),   // 中暗
+    AMOLED_COLOR(0x09C1),   // 最暗
 };
 
 // ── 5×7 ビットマップフォント（Adafruit GFX 形式） ─────────────────────────────
@@ -194,13 +196,16 @@ static volatile uint16_t g_storage_icon_color = 0;
 
 static int g_gb_write = 0;
 
+// ── メニュー / ポーズ ─────────────────────────────────────────────────────────
+static bool                g_menu_active = false;
+static repeating_timer_t   g_frame_timer;  // handle_sys_btn からも参照
+
 // ── セーブ関連 ───────────────────────────────────────────────────────────────
 static int  g_state_slot           = 0;
 static int  g_sram_dirty_countdown = 0;
 
 // ── タッチ由来のジョイパッド（Core 0 だけが読み書き） ───────────────────────
-static uint8_t s_touch_joy = 0xFF;  // D-Pad bits
-static uint8_t s_btn_joy   = 0xFF;  // ゲームボタン bits
+static uint8_t s_btn_joy = 0xFF;  // ゲームボタン bits（持続: 指が離れるまで有効）
 
 // ── 音声 SPSC リングバッファ ─────────────────────────────────────────────────
 // GB_AUDIO_SAMPLES / GB_AUDIO_SAMPLES_TOTAL は gb_core.h で定義済み
@@ -409,9 +414,39 @@ static void do_load_state(void) {
 
 // ── タッチ入力処理 ───────────────────────────────────────────────────────────
 // システムボタン（押下時に一度だけ実行）
+static bool frame_timer_cb(repeating_timer_t *rt);  // forward decl
+
+// ── メニュー / ポーズ操作 ────────────────────────────────────────────────────
+// PicoCalc キーとの対応:
+//   MENU(col0) = ESC : ゲームをポーズしてメニュー表示
+//   SAVE(col1) = F2  : セーブステート書き込み
+//   LOAD(col2) = F3  : セーブステート読み込み
+//   SLOT(col3) = F4  : スロット切り替え
+
+static void do_menu_open(void) {
+    cancel_repeating_timer(&g_frame_timer);
+    g_menu_active = true;
+    g_dpad_active = false;
+    s_btn_joy     = 0xFF;
+    strncpy((char *)g_status_msg, "PAUSED", sizeof(g_status_msg));
+    g_status_ttl  = 9999;  // メニュー閉じるまで表示
+    printf("Menu: open\n");
+}
+
+static void do_menu_close(void) {
+    g_menu_active = false;
+    g_status_ttl  = 0;
+    add_repeating_timer_us(-16743, frame_timer_cb, NULL, &g_frame_timer);
+    printf("Menu: close\n");
+}
+
 static void handle_sys_btn(int col) {
     switch (col) {
-        case 0: /* MENU: 後で実装 */ break;
+        case 0:
+            // MENU(ESC): ポーズ/再開トグル（メニュー UI は後で実装）
+            if (g_menu_active) do_menu_close();
+            else               do_menu_open();
+            break;
         case 1: do_save_state(); break;
         case 2: do_load_state(); break;
         case 3:
@@ -422,12 +457,13 @@ static void handle_sys_btn(int col) {
     }
 }
 
+// process_touch: IRQ 発火時にタッチ状態（持続変数）を更新する。
+// ジョイパッドビットの計算は毎フレーム compute_touch_joy() で行う。
 static void process_touch(const ft3168_data_t *td) {
-    s_touch_joy = 0xFF;
-    s_btn_joy   = 0xFF;
-
     if (td->n_points == 0 || td->p[0].event == 1) {
+        // 指が離れた: 全状態をリセット
         g_dpad_active = false;
+        s_btn_joy     = 0xFF;
         return;
     }
 
@@ -435,20 +471,21 @@ static void process_touch(const ft3168_data_t *td) {
     int ty = (int)td->p[0].y;
     int ev = td->p[0].event;
 
-    if (ty < STATUS_H) return;  // ステータスバー: 無視
+    if (ty < STATUS_H) return;
 
     if (ty < GB_Y_OFF) {
         // システムボタンゾーン
         g_dpad_active = false;
-        if (ev == 0)  // 押下時のみ実行
+        s_btn_joy     = 0xFF;
+        if (ev == 0)
             handle_sys_btn(tx / BTN_COL_W);
         return;
     }
 
     if (ty < GAME_BTN_Y) {
         // ゲームエリア: フローティング D-Pad
+        s_btn_joy = 0xFF;
         if (ev == 0) {
-            // 新規タッチ: 原点セット
             g_dpad_active = true;
             g_dpad_ox = (int16_t)tx;
             g_dpad_oy = (int16_t)ty;
@@ -456,24 +493,32 @@ static void process_touch(const ft3168_data_t *td) {
         if (g_dpad_active) {
             g_dpad_cx = (int16_t)tx;
             g_dpad_cy = (int16_t)ty;
-            int dx = tx - (int)g_dpad_ox;
-            int dy = ty - (int)g_dpad_oy;
-            if (dy < -DPAD_DEAD) s_touch_joy &= ~JOYPAD_UP;
-            if (dy >  DPAD_DEAD) s_touch_joy &= ~JOYPAD_DOWN;
-            if (dx < -DPAD_DEAD) s_touch_joy &= ~JOYPAD_LEFT;
-            if (dx >  DPAD_DEAD) s_touch_joy &= ~JOYPAD_RIGHT;
         }
         return;
     }
 
-    // ゲームボタンゾーン（ty >= GAME_BTN_Y）
+    // ゲームボタンゾーン
     g_dpad_active = false;
+    s_btn_joy = 0xFF;
     switch (tx / BTN_COL_W) {
         case 0: s_btn_joy &= ~JOYPAD_SELECT; break;
         case 1: s_btn_joy &= ~JOYPAD_START;  break;
         case 2: s_btn_joy &= ~JOYPAD_B;      break;
         case 3: s_btn_joy &= ~JOYPAD_A;      break;
     }
+}
+
+// 毎フレーム呼び出し: 持続状態から D-Pad ビットを計算する
+static uint8_t compute_dpad_joy(void) {
+    if (!g_dpad_active) return 0xFF;
+    uint8_t joy = 0xFF;
+    int dx = (int)g_dpad_cx - (int)g_dpad_ox;
+    int dy = (int)g_dpad_cy - (int)g_dpad_oy;
+    if (dy < -DPAD_DEAD) joy &= ~JOYPAD_UP;
+    if (dy >  DPAD_DEAD) joy &= ~JOYPAD_DOWN;
+    if (dx < -DPAD_DEAD) joy &= ~JOYPAD_LEFT;
+    if (dx >  DPAD_DEAD) joy &= ~JOYPAD_RIGHT;
+    return joy;
 }
 
 // ── GB フレーム → フレームバッファ 2× スケール変換 ──────────────────────────
@@ -661,9 +706,8 @@ int main(void) {
     // Core 1 起動
     multicore_launch_core1(core1_main);
 
-    // GB フレームタイマー（59.727fps = 16743μs）
-    static repeating_timer_t frame_timer;
-    add_repeating_timer_us(-16743, frame_timer_cb, NULL, &frame_timer);
+    // GB フレームタイマー（59.727fps = 16743μs）; g_frame_timer はグローバル（ポーズ時に cancel）
+    add_repeating_timer_us(-16743, frame_timer_cb, NULL, &g_frame_timer);
 
     printf("Running.\n");
 
@@ -680,8 +724,11 @@ int main(void) {
             process_touch(&touch);
         }
 
+        // ポーズ中はゲーム進行をスキップ
+        if (g_menu_active) continue;
+
         // ジョイパッド合成: タッチ D-Pad + ゲームボタン + POWER ボタン(A)
-        uint8_t joy = s_touch_joy & s_btn_joy;
+        uint8_t joy = compute_dpad_joy() & s_btn_joy;
         if (gpio_get(SYS_OUT_PIN)) joy &= ~JOYPAD_A;
         gb_core_set_joypad(joy);
         gb_core_run_frame();
