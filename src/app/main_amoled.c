@@ -67,13 +67,20 @@
 #define COL_ICON_SD     AMOLED_COLOR(0x041F)   // 青: SD 書き込み
 #define COL_ICON_FLASH  AMOLED_COLOR(0xFFE0)   // 黄: Flash 書き込み
 
-// ── DMG Green パレット（#9BBC0F / #8BAC0F / #306230 / #0F380F） ──────────────
-static const uint16_t s_pal[4] = {
-    AMOLED_COLOR(0x9DE1),   // 最明
-    AMOLED_COLOR(0x8D61),   // 中明
-    AMOLED_COLOR(0x3306),   // 中暗
-    AMOLED_COLOR(0x09C1),   // 最暗
+// ── パレットテーブル ──────────────────────────────────────────────────────────
+#define N_PALETTES 4
+static const uint16_t s_palettes[N_PALETTES][4] = {
+    // 0: DMG Green
+    { AMOLED_COLOR(0x9DE1), AMOLED_COLOR(0x8D61), AMOLED_COLOR(0x3306), AMOLED_COLOR(0x09C1) },
+    // 1: Greyscale
+    { AMOLED_COLOR(0xFFFF), AMOLED_COLOR(0xAD55), AMOLED_COLOR(0x52AA), AMOLED_COLOR(0x0000) },
+    // 2: Warm (orange-amber)
+    { AMOLED_COLOR(0xFFF0), AMOLED_COLOR(0xF4A0), AMOLED_COLOR(0x8240), AMOLED_COLOR(0x2000) },
+    // 3: Cool (blue)
+    { AMOLED_COLOR(0xCFFF), AMOLED_COLOR(0x7BDF), AMOLED_COLOR(0x0A5F), AMOLED_COLOR(0x001F) },
 };
+static const char *s_palette_names[N_PALETTES] = { "DMG", "Grey", "Warm", "Cool" };
+static const uint16_t *s_pal = s_palettes[0];  // render_frame が参照するパレット
 
 // ── 5×7 ビットマップフォント（Adafruit GFX 形式） ─────────────────────────────
 // 各文字 5 バイト（列方向）: bit0=最上行, bit6=最下行（7行）
@@ -200,7 +207,24 @@ static int g_gb_write = 0;
 
 // ── メニュー / ポーズ ─────────────────────────────────────────────────────────
 static bool                g_menu_active = false;
-static repeating_timer_t   g_frame_timer;  // handle_sys_btn からも参照
+static repeating_timer_t   g_frame_timer;
+
+// パレット選択
+static int  g_palette_idx = 0;
+
+// 音量ステップ: 0=Off, 1=20%, 2=40%, 3=60%, 4=80%, 5=100%
+static int  g_vol_step    = 3;  // 起動時 60%
+static const int  s_vol_values[6] = { 0, 20, 40, 60, 80, 100 };
+static const char *s_vol_labels[6] = { "Off", "20%", "40%", "60%", "80%", "100%" };
+
+static void apply_volume(void) {
+    if (g_vol_step == 0) {
+        es8311_mute(BOARD_I2C, true);
+    } else {
+        es8311_mute(BOARD_I2C, false);
+        es8311_set_volume(BOARD_I2C, s_vol_values[g_vol_step]);
+    }
+}
 
 // ── セーブ関連 ───────────────────────────────────────────────────────────────
 static int  g_state_slot           = 0;
@@ -358,6 +382,49 @@ static void draw_btn(int col_idx, int y_top, int h, const char *label, uint16_t 
     fb_draw_text_center(x0, ty, BTN_COL_W, label, COL_WHITE, bg, 2);
 }
 
+// ── メニューオーバーレイ描画（Core 1 から毎フレーム呼ぶ） ────────────────────
+// 5項目: Palette / Volume / Backup SD / Restore SD / Close
+#define MENU_N_ITEMS   5
+#define MENU_ITEM_H    48
+#define MENU_TITLE_Y   (GB_Y_OFF + 12)
+#define MENU_ITEMS_Y   (GB_Y_OFF + 44)
+#define MENU_BG        AMOLED_COLOR(0x1082)
+#define MENU_ITEM_BG   AMOLED_COLOR(0x2104)
+#define MENU_ITEM_SEL  AMOLED_COLOR(0x3186)
+
+static int s_menu_item = -1;  // 選択中の項目(-1=なし)
+
+static void draw_menu_overlay(void) {
+    // 半暗オーバーレイ
+    fb_fill(GB_X_OFF, GB_Y_OFF, GB_X_OFF + GB_W2, GAME_BTN_Y, MENU_BG);
+    // タイトル
+    fb_draw_text_center(GB_X_OFF, MENU_TITLE_Y, GB_W2, "- MENU -", COL_WHITE, MENU_BG, 2);
+    fb_fill(GB_X_OFF, MENU_TITLE_Y + 22, GB_X_OFF + GB_W2, MENU_TITLE_Y + 23, COL_DIVIDER);
+
+    static const char *labels[MENU_N_ITEMS] = {
+        "Palette", "Volume", "Backup SD", "Restore SD", "Close"
+    };
+    for (int i = 0; i < MENU_N_ITEMS; i++) {
+        int iy  = MENU_ITEMS_Y + i * MENU_ITEM_H;
+        int iy1 = iy + MENU_ITEM_H - 2;
+        uint16_t bg = (i == s_menu_item) ? MENU_ITEM_SEL : MENU_ITEM_BG;
+        fb_fill(GB_X_OFF, iy, GB_X_OFF + GB_W2, iy1, bg);
+        fb_fill(GB_X_OFF, iy1, GB_X_OFF + GB_W2, iy1 + 1, COL_DIVIDER);
+
+        int ty = iy + (MENU_ITEM_H - 14) / 2;
+        fb_draw_text(GB_X_OFF + 10, ty, labels[i], COL_WHITE, bg, 2);
+
+        // 現在値を右寄せ
+        char val[12] = "";
+        if (i == 0) snprintf(val, sizeof(val), "%s", s_palette_names[g_palette_idx]);
+        if (i == 1) snprintf(val, sizeof(val), "%s", s_vol_labels[g_vol_step]);
+        if (val[0]) {
+            int vw = (int)strlen(val) * 12;
+            fb_draw_text(GB_X_OFF + GB_W2 - vw - 10, ty, val, COL_WHITE, bg, 2);
+        }
+    }
+}
+
 // ── システムボタン描画（起動時 + SLOT 更新時） ───────────────────────────────
 static void draw_system_buttons(void) {
     char slot_label[8];
@@ -379,17 +446,16 @@ static void draw_game_buttons(void) {
 
 // ── D-Pad オーバーレイ（Core 1 から毎フレーム呼ぶ、active 時のみ） ──────────
 static void draw_dpad_overlay(void) {
-    int cx = g_dpad_cx, cy = g_dpad_cy;
+    int ox = g_dpad_ox, oy = g_dpad_oy;  // タッチ開始点（原点）
+    int cx = g_dpad_cx, cy = g_dpad_cy;  // 現在位置
 
-    // 基準中央に十字（方向感覚の目安）
-    fb_fill(DPAD_REF_X - DPAD_BOX, DPAD_REF_Y - 1,
-            DPAD_REF_X + DPAD_BOX, DPAD_REF_Y + 1, COL_DPAD_BOX);
-    fb_fill(DPAD_REF_X - 1, DPAD_REF_Y - DPAD_BOX,
-            DPAD_REF_X + 1, DPAD_REF_Y + DPAD_BOX, COL_DPAD_BOX);
+    // 原点に十字（ここが基準）
+    fb_fill(ox - DPAD_BOX, oy - 1, ox + DPAD_BOX, oy + 1, COL_DPAD_BOX);
+    fb_fill(ox - 1, oy - DPAD_BOX, ox + 1, oy + DPAD_BOX, COL_DPAD_BOX);
 
-    // デッドゾーン矩形
-    fb_rect(DPAD_REF_X - DPAD_DEAD, DPAD_REF_Y - DPAD_DEAD,
-            DPAD_REF_X + DPAD_DEAD, DPAD_REF_Y + DPAD_DEAD, COL_DPAD_BOX);
+    // デッドゾーン矩形（原点中心）
+    fb_rect(ox - DPAD_DEAD, oy - DPAD_DEAD,
+            ox + DPAD_DEAD, oy + DPAD_DEAD, COL_DPAD_BOX);
 
     // 現在のタッチ位置（白い小十字）
     fb_fill(cx - 3, cy - 1, cx + 3, cy + 1, COL_WHITE);
@@ -472,8 +538,16 @@ static void handle_sys_btn(int col) {
 //   - 「新規押下」検出: ゾーンが変わったとき (new_zone) に一度だけアクションを実行。
 //   - 「指離れ」検出: IRQ が TOUCH_LIFT_FRAMES 以上来なくなったら離れたとみなす
 //                     （main ループ側のタイムアウト処理に委ねる）。
+static void process_menu_touch(const ft3168_data_t *td);  // forward decl
+
 static void process_touch(const ft3168_data_t *td) {
-    if (td->n_points == 0) return;  // データなし（念のため）
+    if (td->n_points == 0) return;
+
+    // メニュー表示中はメニュー専用処理へ
+    if (g_menu_active) {
+        process_menu_touch(td);
+        return;
+    }
 
     int tx = (int)td->p[0].x;
     int ty = (int)td->p[0].y;
@@ -501,9 +575,14 @@ static void process_touch(const ft3168_data_t *td) {
                 handle_sys_btn(tx / BTN_COL_W);
             break;
 
-        case 2:  // ゲームエリア: D-Pad セッション開始・継続
-            s_touched_game_area = true;  // このセッションを D-Pad セッションとしてマーク
+        case 2:  // ゲームエリア: D-Pad（タッチ開始位置が原点）
+            s_touched_game_area = true;
             s_btn_joy = 0xFF;
+            if (new_zone) {
+                // ゾーン初入時: 原点をタッチ開始位置にセット
+                g_dpad_ox = (int16_t)tx;
+                g_dpad_oy = (int16_t)ty;
+            }
             g_dpad_active = true;
             g_dpad_cx = (int16_t)tx;
             g_dpad_cy = (int16_t)ty;
@@ -524,15 +603,49 @@ static void process_touch(const ft3168_data_t *td) {
     }
 }
 
-// ゲームエリア中央座標（D-Pad の方向判定基準点）
-// 毎フレーム呼び出し: タッチ位置をゲームエリア中央基準で方向判定する。
-// フローティング方式では FT3168 の連続 IRQ が必要で安定しないため、
-// タッチ位置（cx,cy）を固定中央(REF)からの変位で判定する方式に変更。
+// ── メニュータッチ処理 ───────────────────────────────────────────────────────
+static void process_menu_touch(const ft3168_data_t *td) {
+    if (td->n_points == 0) return;
+    int tx = (int)td->p[0].x;
+    int ty = (int)td->p[0].y;
+
+    // メニュー項目ゾーン（ゲームエリア内）
+    if (ty < MENU_ITEMS_Y || ty >= MENU_ITEMS_Y + MENU_N_ITEMS * MENU_ITEM_H) return;
+    int item = (ty - MENU_ITEMS_Y) / MENU_ITEM_H;
+    (void)tx;
+
+    bool new_item = (item != s_menu_item);
+    s_menu_item = item;
+    if (!new_item) return;  // 同じ項目を保持中は発火しない
+
+    switch (item) {
+        case 0:  // Palette: サイクル
+            g_palette_idx = (g_palette_idx + 1) % N_PALETTES;
+            s_pal = s_palettes[g_palette_idx];
+            break;
+        case 1:  // Volume: サイクル
+            g_vol_step = (g_vol_step + 1) % 6;
+            apply_volume();
+            break;
+        case 2:  // Backup SD: TODO
+            printf("Menu: SD backup (TODO)\n");
+            break;
+        case 3:  // Restore SD: TODO
+            printf("Menu: SD restore (TODO)\n");
+            break;
+        case 4:  // Close: メニューを閉じてゲーム再開
+            s_menu_item = -1;
+            do_menu_close();
+            break;
+    }
+}
+
+// 毎フレーム呼び出し: タッチ開始位置を原点として変位で方向判定する
 static uint8_t compute_dpad_joy(void) {
     if (!g_dpad_active) return 0xFF;
     uint8_t joy = 0xFF;
-    int dx = (int)g_dpad_cx - DPAD_REF_X;
-    int dy = (int)g_dpad_cy - DPAD_REF_Y;
+    int dx = (int)g_dpad_cx - (int)g_dpad_ox;
+    int dy = (int)g_dpad_cy - (int)g_dpad_oy;
     if (dy < -DPAD_DEAD) joy &= ~JOYPAD_UP;
     if (dy >  DPAD_DEAD) joy &= ~JOYPAD_DOWN;
     if (dx < -DPAD_DEAD) joy &= ~JOYPAD_LEFT;
@@ -581,8 +694,10 @@ static void core1_main(void) {
         // ステータスバーを s_fb に反映（テキスト + アイコン）
         draw_status_bar();
 
-        // D-Pad オーバーレイ（アクティブ時のみ、ゲームエリアに重ねる）
-        if (g_dpad_active)
+        // D-Pad オーバーレイ / メニューオーバーレイ（排他）
+        if (g_menu_active)
+            draw_menu_overlay();
+        else if (g_dpad_active)
             draw_dpad_overlay();
 
         // ステータスバー + システムボタン + ゲームエリアを一括転送
@@ -751,7 +866,8 @@ int main(void) {
                 g_dpad_active       = false;
                 s_btn_joy           = 0xFF;
                 s_touch_zone        = -1;
-                s_touched_game_area = false;  // 次のセッションは新規
+                s_touched_game_area = false;
+                s_menu_item         = -1;  // メニュー項目選択もリセット
             }
         }
 
