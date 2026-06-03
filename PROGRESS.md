@@ -1,14 +1,14 @@
 # 開発進捗
 
-最終更新: 2026-05-25
+最終更新: 2026-06-03
 
 ---
 
 ## 現在のフォーカス
 
-**Milestone 9: 携帯機化** → ✅ 完了
+**AMOLED ターゲット** → ✅ 基本実装完了（音声・表示・タッチ・セーブ・200MHz 動作確認済み）
 
-すべてのマイルストーンが完了。現在は保留事項（バッテリー残量・LCD バックライト）の解決待ち。
+---
 
 ---
 
@@ -156,6 +156,101 @@
 
 | トピック | 場所 |
 |---|---|
-| PicoCalc ハードウェア仕様（LCD・KB・SD・Audio）| `HardwareSpec.md` |
+| PicoCalc ハードウェア仕様（LCD・KB・SD・Audio）| `HardwareSpec.md` Part 1 |
+| AMOLED ハードウェア仕様（QSPI・FT3168・ES8311・SD）| `HardwareSpec.md` Part 2 |
 | 開発環境構築手順 | `DevelopmentEnvironment.md` |
 | プロジェクト全体仕様・方針 | `Spec.md` |
+| 移植で得た非自明な知見 | `PORTING.md` |
+
+---
+
+---
+
+# AMOLED ターゲット進捗
+
+対象デバイス: **Waveshare RP2350-Touch-AMOLED-1.8**
+
+---
+
+## 現在のフォーカス
+
+基本実装完了。音量調整 UI、2点タッチ対応などは今後の課題。
+
+---
+
+## マイルストーン進捗
+
+### Milestone A1: QSPI AMOLED 表示ドライバ ✅ 完了
+
+- [x] QSPI PIO ドライバ実装（`src/drivers/display/qspi_pio.c`）
+- [x] AMOLED 初期化シーケンス（`src/drivers/display/amoled_1in8.c`）
+- [x] DMA 転送（`amoled_1in8_display_window()`）
+- [x] GB 2× スケール表示（320×288 を 368×448 パネル中央に配置）実機確認済み
+
+### Milestone A2: タッチ入力確認 ✅ 完了
+
+- [x] FT3168 ドライバ（`src/drivers/input/ft3168_touch.c`）
+- [x] ポイントモード（座標取得）実機確認済み
+- [x] ジェスチャーモード（UP/DOWN/LEFT/RIGHT/CLICK/DOUBLE_CLICK）実機確認済み
+- [x] **1点タッチのみ対応を実機確認**（2点目は応答なし）
+- [x] D-Pad / ボタン 4象限 / ステータスバーのタッチゾーン設計
+
+### Milestone A3: ES8311 I2S 音声確認（Phase 2b）✅ 完了
+
+- [x] ES8311 I2C 初期化（`src/drivers/audio/es8311.c`）
+- [x] PIO MCLK 生成（`audio_i2s_pio.h`、pio1 SM0）
+- [x] PIO I2S 出力（pio2 SM0、ES8311 マスターモード）
+- [x] DMA IRQ 駆動ダブルバッファ（Core 0、DMA_IRQ_0）
+- [x] 440Hz サイン波テストで音声出力確認（chip ID: 0x1183）
+
+### Milestone A4: GB エミュレーション統合 ✅ 完了
+
+- [x] `main_amoled.c` — GB コア + 表示 + タッチ + 音声の統合
+- [x] ダブルフレームバッファ（Core 0 書込 / Core 1 転送）
+- [x] SPSC リングバッファ（4096 サンプル / 128ms）
+- [x] Bresenham レートコレクション（785/1024 / フレーム）
+- [x] APU 音声出力（32000Hz ES8311）実機確認済み
+
+### Milestone A5: セーブ対応 ✅ 完了
+
+- [x] SRAM 自動セーブ（1秒デバウンス、Flash 書込、マルチコアロックアウト）
+- [x] セーブステート（10スロット、Flash）
+- [x] ステータスバーのタッチでセーブ / スロット切替 / ロード
+
+### Milestone A6: SD カード / ROM 管理 ✅ 完了
+
+- [x] SD カード（SPI1 / GP26-28、hw_config.c）
+- [x] SD からの ROM 書き込み → Flash XIP 起動
+- [x] picotool で直接 Flash に書き込む方法も対応
+
+### Milestone A7: 200MHz オーバークロック ✅ 完了（2026-06-03）
+
+- [x] `set_sys_clock_khz(200000, true)` 適用
+- [x] QSPI PIO div を動的計算（`clock_get_hz(clk_sys) / (75MHz × 2)`）で速度固定
+- [x] フレームバジェット余裕: ~16.76ms → **~12.6ms**（余裕 4ms）
+- [x] 重い場面でのスローダウン解消を実機確認
+
+---
+
+## 保留・今後の課題
+
+| 項目 | 内容 |
+|------|------|
+| 音量調整 UI | 現状 `es8311_set_volume(60)` 固定。メニューへの組み込みが必要 |
+| 2点タッチ | FT3168 の制限（1点のみ）。十字キーとボタンの左右分割で代替中 |
+| パレット切替 | PicoCalc ではメニューから変更可能。AMOLED では未実装 |
+| メニュー UI | AMOLED ではタッチ UI 未実装（ステータスバーのみ） |
+
+---
+
+## 決定事項ログ（AMOLED）
+
+| 日付 | 決定内容 | 理由 |
+|------|---------|------|
+| 2026-06-03 | サンプリングレート 32000Hz | ES8311 係数テーブルに存在する最近似値 |
+| 2026-06-03 | Bresenham 補正 (785/1024) | 32000 × 70224 / 4194304 = 535 + 785/1024 の厳密解 |
+| 2026-06-03 | DMA バッファ 1024 samples（32ms） | 512 samples（16ms）では引っかかりが多かったため |
+| 2026-06-03 | リングバッファ 4096 samples（128ms） | 重い場面でのバッファ枯渇を抑止 |
+| 2026-06-03 | 音量 60 | 80 では大きすぎた |
+| 2026-06-03 | 200MHz オーバークロック | APU 処理でフレームバジェットがギリギリだったため |
+| 2026-06-03 | QSPI div 動的計算 | div=1.0 固定では 200MHz 時に 100MHz QSPI となり表示不可になった |

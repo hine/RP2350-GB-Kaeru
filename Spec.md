@@ -2,7 +2,11 @@
 
 ## 1. プロジェクト概要
 
-RP2350A 搭載ボード + ClockworkPi PicoCalc 上で、「カエルの為に鐘は鳴る」（DMG Game Boy）を動かすための専用エミュレータ。
+RP2350 系デバイス向け「カエルの為に鐘は鳴る」（DMG Game Boy）専用エミュレータ。
+
+対応ターゲット：
+- **PicoCalc** — ClockworkPi PicoCalc（RP2350A）
+- **AMOLED** — Waveshare RP2350-Touch-AMOLED-1.8
 
 他のゲームの動作確認はしておらず、対応する予定もない。
 
@@ -10,7 +14,7 @@ RP2350A 搭載ボード + ClockworkPi PicoCalc 上で、「カエルの為に鐘
 
 ## 2. 目的
 
-PicoCalc 上で「カエルの為に鐘は鳴る」を快適にプレイできる状態にする。
+各ターゲットデバイス上で「カエルの為に鐘は鳴る」を快適にプレイできる状態にする。
 
 具体的には以下を実装する（すべて達成済み）：
 
@@ -27,30 +31,33 @@ PicoCalc 上で「カエルの為に鐘は鳴る」を快適にプレイでき�
 
 ## 3. 対象ハードウェア
 
-### 3.1 本体
-
-- ClockworkPi PicoCalc
-
-### 3.2 SoC ボード
-
-PicoCalc 内部の Raspberry Pi Pico 互換ピンに装着する RP2350A 搭載ボードを使用する。
+### 3.1 PicoCalc
 
 | 項目 | 内容 |
-|---|---|
+|------|------|
+| 本体 | ClockworkPi PicoCalc |
 | SoC | Raspberry Pi RP2350A |
-| CPU | Dual-core Arm Cortex-M33 |
-| 最大クロック | 150 MHz |
+| CPU | Dual-core Arm Cortex-M33 @ **150 MHz** |
 | SRAM | 520 KB |
 | Flash | 16 MB |
-| PWM | 16ch |
+| ディスプレイ | ILI9488 SPI LCD 320×320 |
+| 音声 | PWM アンプ直結（GP26/27） |
+| 入力 | STM32 I2C キーボード（0x1F） |
+| SD カード | SPI0（GP16-19） |
 
-### 3.3 使用する PicoCalc 機能
+### 3.2 AMOLED
 
-- LCD（ILI9488 320×320、SPI1）
-- キーボード（STM32 I2C コントローラ、GP6/7、アドレス 0x1F）
-- microSD（SPI0、GP16-19）
-- スピーカー（GP26/27、アンプ直結 PWM 専用）
-- バッテリー（UI は "--" 表示。STM32 ファームウェアが 0x0B 未実装のため読み取り不可）
+| 項目 | 内容 |
+|------|------|
+| 本体 | Waveshare RP2350-Touch-AMOLED-1.8 |
+| SoC | Raspberry Pi RP2350 |
+| CPU | Dual-core Arm Cortex-M33 @ **200 MHz**（オーバークロック） |
+| SRAM | 520 KB |
+| Flash | 16 MB |
+| ディスプレイ | QSPI AMOLED 368×448 |
+| 音声 | ES8311 I2S コーデック（32000 Hz） |
+| 入力 | FT3168 静電容量式タッチ（1点） |
+| SD カード | SPI1（GP26-28、CS=GP25） |
 
 ---
 
@@ -188,20 +195,40 @@ y=304〜319 (16px) 下部: キーヒント
 
 ## 9. 音声仕様
 
+### PicoCalc
+
 | 項目 | 内容 |
-|---|---|
-| 出力方式 | PWM（GP26/GP27、PicoCalc アンプ直結） |
+|------|------|
+| 出力方式 | PWM（GP26/GP27、アンプ直結） |
 | 解像度 | 12bit（AUDIO_WRAP=4095） |
 | サンプリング周波数 | ≈32767 Hz（TIMER_WRAP=4578 @ 150MHz、誤差 0.004%） |
-| APU 生成レート | 32769 Hz（AUDIO_SAMPLE_RATE=32800 → AUDIO_SAMPLES=549 サンプル/フレーム） |
-| バッファ | DMA ダブルバッファ（549 サンプル/バッファ、~33ms レイテンシ） |
-| 駆動方式 | DMA IRQ 駆動（Core 0 で処理） |
-| APU コア | minigb_apu（Peanut-GB 同梱、S16 ステレオ） |
+| APU 生成レート | AUDIO_SAMPLE_RATE=32800 → AUDIO_SAMPLES=549 サンプル/フレーム |
+| バッファ | DMA ダブルバッファ（549 サンプル/バッファ） |
+| 駆動方式 | DMA IRQ 駆動（Core 0） |
+| APU コア | minigb_apu（S16 ステレオ） |
 
-**設計上の注意:**
-- I2S DAC 非搭載のため I2S 化は不可（GP26/27 はアンプ直結 PWM 専用）
-- DMA IRQ は Core 0 に登録すること。Core 1 では `multicore_lockout` で停止するため、Flash 書き込み中にハードウェアチェーン DMA が TRANS_COUNT=0 で暴走し「ザザッ」ノイズが発生する
-- IRQ ハンドラは `__not_in_flash_func` で SRAM に配置し、XIP 無効中でも実行可能にすること
+**制限:** GP26/27 はアンプ直結 PWM 専用のため I2S 化不可。
+
+### AMOLED
+
+| 項目 | 内容 |
+|------|------|
+| 出力方式 | I2S（ES8311 コーデック経由） |
+| サンプリング周波数 | **32000 Hz**（ES8311 が LRCLK を生成、RP2350 クロックに非依存） |
+| MCLK | 6,144,000 Hz（PIO1 SM0 で生成、`clock_get_hz()` で動的補正） |
+| APU 生成レート | AUDIO_SAMPLE_RATE=32000 → AUDIO_SAMPLES=535 サンプル/フレーム |
+| Bresenham 補正 | acc+=785、threshold=1024 → 平均 535.767 サンプル/フレーム = 32000 Hz |
+| DMA バッファ | 2 × 1024 サンプル（32ms/バッファ） |
+| リングバッファ | 4096 サンプル（128ms、SPSC） |
+| 音量 | `es8311_set_volume(60)` |
+| 駆動方式 | DMA IRQ 駆動（Core 0） |
+| APU コア | minigb_apu（S16 ステレオ） |
+
+### 両ターゲット共通の音声設計制約
+
+- **DMA IRQ は Core 0 に登録する**（Core 1 では `multicore_lockout` で停止するため）
+- **IRQ ハンドラは `__not_in_flash_func`** で SRAM 配置（Flash XIP 無効中でも実行可能に）
+- **ハードウェアチェーン DMA 不使用**（Flash 書き込み中に TRANS_COUNT=0 で暴走する）
 
 ---
 
@@ -275,18 +302,32 @@ SD カードはカード破損リスクがあるため、**ゲームデータの
 
 ## 12. マイルストーン
 
+### PicoCalc
+
 | # | 内容 | 状態 |
-|---|---|---|
+|---|------|------|
 | 0 | 開発環境構築 | ✅ |
 | 1 | PicoCalc 基本 I/O（LCD・KB・SD・音声） | ✅ |
 | 2 | GB コア組み込み（Peanut-GB） | ✅ |
-| 3 | 画面表示（2x スケール・~60fps） | ✅ |
+| 3 | 画面表示（2× スケール・~60fps） | ✅ |
 | 4 | 入力対応 | ✅ |
-| 5 | 対象 ROM 起動（カエルの為に鐘は鳴る） | ✅ |
+| 5 | 対象 ROM 起動 | ✅ |
 | 6 | セーブ対応（SRAM・Flash・自動セーブ） | ✅ |
 | 7 | 音声対応（PWM 12bit DMA IRQ） | ✅ |
 | 8 | GBC 対応 | ⬜ 予定なし |
 | 9 | 携帯機化（メニュー・セーブステート・SD バックアップ） | ✅ |
+
+### AMOLED
+
+| # | 内容 | 状態 |
+|---|------|------|
+| A1 | QSPI AMOLED 表示ドライバ実装 | ✅ |
+| A2 | FT3168 タッチ確認（1点・ジェスチャー） | ✅ |
+| A3 | ES8311 I2S 音声確認（サイン波テスト） | ✅ |
+| A4 | GB エミュレーション統合（表示・タッチ・音声） | ✅ |
+| A5 | セーブ対応（SRAM 自動セーブ・セーブステート） | ✅ |
+| A6 | SD カードから ROM 書き込み | ✅ |
+| A7 | 200MHz オーバークロック（重い場面のスローダウン解消） | ✅ |
 
 ---
 

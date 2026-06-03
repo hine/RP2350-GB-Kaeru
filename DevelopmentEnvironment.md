@@ -1,16 +1,20 @@
-# PicoCalc GB/GBC Project - Development Environment Setup
+# RP2350-GB-Kaeru - Development Environment Setup
 
 ## 1. 概要
 
-RP2350A + PicoCalc を用いた Game Boy / Game Boy Color 互換機の開発環境セットアップ手順。
+RP2350 系デバイス向け Game Boy エミュレータの開発環境セットアップ手順。
+
+対応ターゲット：
+- **PicoCalc** (`picocalc_gb_kaeru`) — ClockworkPi PicoCalc
+- **AMOLED** (`amoled_gb_kaeru`) — Waveshare RP2350-Touch-AMOLED-1.8
 
 開発方針：
 
-- CLIベース開発
-- Claude Code などAI支援開発を前提
+- CLI ベース開発
+- Claude Code など AI 支援開発を前提
 - Pico SDK + CMake + Ninja を採用
 - VSCode は補助用途
-- compile_commands.json を生成し、AI補完を強化
+- compile_commands.json を生成し、AI 補完を強化
 
 対象OS：
 
@@ -127,7 +131,7 @@ git submodule update --init --recursive
 ## 6. ビルド
 
 ```
-cd ~/Projects/PicoCalc-GB-Kaeru
+cd ~/Projects/RP2350-GB-Kaeru
 
 cmake -S . -B build \
   -G Ninja \
@@ -135,29 +139,61 @@ cmake -S . -B build \
   -DPICO_PLATFORM=rp2350 \
   -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
+# 全ターゲットをビルド
 cmake --build build -j$(nproc)
+
+# または個別に
+cmake --build build --target picocalc_gb_kaeru -j$(nproc)
+cmake --build build --target amoled_gb_kaeru   -j$(nproc)
 ```
 
 生成物：
 
 ```
-build/picocalc_gb_kaeru.uf2
+build/picocalc_gb_kaeru.uf2   # PicoCalc 向け
+build/amoled_gb_kaeru.uf2     # AMOLED 向け
+build/amoled_sound_test.uf2   # AMOLED 音声単体テスト
+build/amoled_touch_test.uf2   # AMOLED タッチ単体テスト
 ```
 
 ---
 
-## 7. PicoCalc への書き込み
+## 7. デバイスへの書き込み
 
-RP2350 ボードを BOOTSEL ボタンを押しながら USB 接続する。USB マスストレージとして認識されたら：
+BOOTSEL ボタンを押しながら USB 接続し、USB マスストレージとして認識されたら：
 
 ```
+# PicoCalc
 cp build/picocalc_gb_kaeru.uf2 /media/$USER/RPI-RP2/
+
+# AMOLED
+cp build/amoled_gb_kaeru.uf2 /media/$USER/RPI-RP2/
 ```
 
-自動的に再起動する。
+または picotool を使う場合：
 
-> **注意:** USB stdio は無効化されているため、USB 経由のシリアル出力はない。
-> デバッグが必要な場合は UART (GP0/GP1) を使う。
+```
+picotool load build/amoled_gb_kaeru.uf2 --force
+picotool reboot
+```
+
+### デバッグ出力
+
+| ターゲット | USB stdio | UART |
+|-----------|-----------|------|
+| `picocalc_gb_kaeru` | 無効（TinyUSB が SPI/DMA と競合するため） | 無効 |
+| `amoled_gb_kaeru` | **有効**（USB CDC） | 無効 |
+| `amoled_sound_test` | **有効** | 無効 |
+| `amoled_touch_test` | **有効** | 無効 |
+
+AMOLED ターゲットは USB 接続中にターミナルを開くと printf 出力を確認できる：
+
+```
+# Linux / WSL
+screen /dev/ttyACM0 115200
+
+# または minicom, picocom 等
+```
 
 ---
 
@@ -195,9 +231,9 @@ ln -sf build/compile_commands.json .
 ```
 コード変更
   ↓
-cmake --build build -j$(nproc)
+cmake --build build --target <ターゲット> -j$(nproc)
   ↓
-UF2 コピー → PicoCalc 動作確認
+UF2 コピー → 実機動作確認
   ↓
 PROGRESS.md を更新（チェックボックス・決定事項ログ）
   ↓
@@ -205,6 +241,9 @@ git commit（動作確認のたびにコミット）
   ↓
 git push
 ```
+
+> **注意:** `amoled_gb_kaeru` の変更が `picocalc_gb_kaeru` に影響しないことを定期的に確認する。
+> 共有コード（`src/emu/gb/gb_core.c` 等）を変更した場合は両ターゲットをビルドしてエラーがないことを確かめること。
 
 ### PROGRESS.md の更新ルール
 

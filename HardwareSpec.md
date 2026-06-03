@@ -1,4 +1,10 @@
-# PicoCalc ハードウェア仕様
+# ハードウェア仕様
+
+本ドキュメントは対応ターゲット両機のハードウェア仕様をまとめたものです。
+
+---
+
+# Part 1: PicoCalc ハードウェア仕様
 
 調査日: 2026-05-22
 
@@ -269,3 +275,142 @@ PicoCalc-GameBoy (jblanked) は I2S 44.1kHz 16-bit ステレオを使用。
 - [フォーラム: GPIO ピン割り当て](https://forum.clockworkpi.com/t/gpio-for-pico-calc-how-to-make-firmware-for-pico-calc/20905)
 - [フォーラム: ILI9488 ピン設定](https://forum.clockworkpi.com/t/ili9488-pin-configuration/17547)
 - [フォーラム: ST7365P LCD](https://forum.clockworkpi.com/t/new-lcd-screen-st7365p-in-recent-picocalc-commit/17649)
+
+---
+
+---
+
+# Part 2: Waveshare RP2350-Touch-AMOLED-1.8 ハードウェア仕様
+
+調査日: 2026-06-03（実機確認済み）
+
+## 1. ピン割り当て一覧
+
+| 機能 | 信号 | GPIO | インターフェース |
+|------|------|------|----------------|
+| AMOLED | CS | GP9 | QSPI PIO |
+| AMOLED | SCLK | GP10 | QSPI PIO |
+| AMOLED | DIO0 | GP11 | QSPI PIO |
+| AMOLED | DIO1 | GP12 | QSPI PIO |
+| AMOLED | DIO2 | GP13 | QSPI PIO |
+| AMOLED | DIO3 | GP14 | QSPI PIO |
+| AMOLED | RST | GP15 | GPIO |
+| AMOLED | PWR_EN | GP17 | GPIO |
+| タッチ / I2C 共有 | SDA | GP6 | I2C1 |
+| タッチ / I2C 共有 | SCL | GP7 | I2C1 |
+| FT3168 タッチ RST | — | GP5 | GPIO |
+| FT3168 タッチ INT | — | GP4 | GPIO |
+| ES8311 音声コーデック | SDA/SCL | GP6/7 | I2C1（共有） |
+| ES8311 PA 制御 | PA_CTRL | GP19 | GPIO |
+| ES8311 I2S DOUT | — | GP20 | PIO（pio2） |
+| ES8311 I2S DIN | — | GP21 | PIO（未使用） |
+| ES8311 I2S MCLK | — | GP22 | PIO（pio1） |
+| ES8311 I2S LRCLK | — | GP23 | ES8311 出力（入力として読む） |
+| ES8311 I2S BCLK | — | GP24 | ES8311 出力（入力として読む） |
+| SD カード | MISO | GP28 | SPI1 |
+| SD カード | MOSI | GP27 | SPI1 |
+| SD カード | SCK | GP26 | SPI1 |
+| SD カード | CS | GP25 | SPI1 |
+| システム | SYS_OUT | GP18 | GPIO（電源キー） |
+
+---
+
+## 2. AMOLED ディスプレイ
+
+| 項目 | 内容 |
+|------|------|
+| パネル解像度 | **368 × 448 px** |
+| コントローラ | QSPI 接続（カスタムドライバ使用、LovyanGFX 非対応） |
+| インターフェース | QSPI（4 データライン）/ PIO 駆動（pio0 SM0/1） |
+| PIO クロック | div=動的計算（`clock_get_hz(clk_sys) / (75MHz × 2)`）、SCLK ≈ 75MHz |
+| 色フォーマット | RGB565 big-endian（`AMOLED_COLOR()` マクロで変換） |
+| 輝度制御 | I2C コマンド（`amoled_1in8_set_brightness()`） |
+
+### GB 画面レイアウト
+
+```
+y=0〜15    (16px)  ステータスバー（セーブ操作タッチゾーン）
+y=16〜303  (288px) GB 画面（2× スケール 320×288、x=24〜343 中央寄せ）
+y=304〜447 (144px) 操作 UI（左: 十字キー / 右: ボタン 4象限）
+```
+
+---
+
+## 3. タッチコントローラ（FT3168）
+
+| 項目 | 内容 |
+|------|------|
+| コントローラ | FT3168（Waveshare 独自ファームウェア） |
+| I2C アドレス | 0x38 |
+| I2C バス | i2c1（GP6/7、400kHz） |
+| タッチ点数 | **1点のみ**（実機確認済み、2点目は応答なし） |
+| 動作モード | ポイントモード（`FT3168_MODE_POINT`） / ジェスチャーモード（`FT3168_MODE_GESTURE`） |
+| ジェスチャー | UP / DOWN / LEFT / RIGHT / CLICK / DOUBLE_CLICK（reg 0xD3） |
+| INT ピン | GP4（EDGE_RISE 割り込み） |
+
+### 1点タッチ制限について
+
+2点タッチの実装可否を調査した結果、**FT3168 は1点しか返さない**ことを実機で確認。
+GB プレイに必要な「十字キー + ボタン同時押し」は画面の左右分割レイアウトで対応（左: 十字キー、右: ボタン）。
+
+---
+
+## 4. 音声コーデック（ES8311）
+
+| 項目 | 内容 |
+|------|------|
+| コーデック | ES8311 |
+| I2C アドレス | 0x18（chip ID: 0x1183） |
+| I2C バス | i2c1（GP6/7、400kHz、FT3168 と共有） |
+| 動作モード | **マスターモード**（ES8311 が BCLK/LRCLK を生成） |
+| サンプルレート | **32000 Hz** |
+| MCLK | 6,144,000 Hz（= 32000 × 192）、PIO1 SM0 で生成 |
+| BCLK | 2,048,000 Hz（= MCLK / 3 × 4 / bclk_div 4） |
+| LRCLK | 32,000 Hz（= system_clock / 256） |
+| 分解能 | 16bit stereo |
+| PA 制御 | GP19 HIGH でアンプ有効 |
+
+### I2S PIO 構成
+
+| PIO | SM | 用途 |
+|-----|-----|------|
+| pio0 | 0,1 | QSPI 表示（既存） |
+| **pio1** | 0 | MCLK 生成（6.144MHz 矩形波） |
+| **pio2** | 0 | I2S DOUT（ES8311 スレーブ送信） |
+
+ES8311 がマスターで BCLK/LRCLK を生成するため、RP2350 のクロック変更（オーバークロック）の影響を受けない。
+MCLK 分周器は `clock_get_hz(clk_sys)` 実行時参照で自動補正される。
+
+---
+
+## 5. SD カード
+
+| 項目 | 内容 |
+|------|------|
+| インターフェース | SPI1（GP26-28、CS=GP25） |
+| ボーレート | 12 MHz |
+| ファイルシステム | FAT32 |
+| ライブラリ | no-OS-FatFS-SD-SPI-RPi-Pico |
+| DMA IRQ | DMA_IRQ_1（音声の DMA_IRQ_0 と分離） |
+
+オーバークロック（200MHz）時も `clk_peri=200MHz` を正しく設定することで、`spi_init()` が分周比を自動計算し 12MHz を維持する。
+
+---
+
+## 6. システムクロック
+
+| 設定 | 値 | 備考 |
+|------|-----|------|
+| sys_clk | **200 MHz**（オーバークロック） | `set_sys_clock_khz(200000, true)` |
+| clk_peri | 200 MHz | SPI/I2C 分周比の基準 |
+| QSPI PIO | ≈75 MHz SCLK | `div = sys_clk / (75MHz × 2)` 動的計算 |
+| Audio MCLK PIO | ≈6.144 MHz | `div = sys_clk / (6144000 × 5)` 動的計算 |
+| フレームタイマー | 59.727 fps（crystal 基準） | クロック変更の影響なし |
+
+---
+
+## 7. 情報ソース
+
+- Waveshare 公式サンプル（`samples/RP2350-Touch-AMOLED-1.8/`）
+- `samples/RP2350-Touch-AMOLED-1.8/C/02-ES8311/` — ES8311 / I2S 実装参考
+- `src/boards/waveshare_touch_amoled_1_8/board_config.h` — ピン定義
