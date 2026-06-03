@@ -871,7 +871,20 @@ int main(void) {
             }
         }
 
-        // ポーズ中はゲーム進行をスキップ
+        // Core 1 へ描画ディスパッチ（ポーズ中も必須: メニューオーバーレイを表示するため）
+        if (!g_lcd_busy) {
+            g_lcd_idx = g_gb_write;
+            __dmb();
+            g_lcd_busy = true;
+            if (!g_menu_active) {
+                // ゲーム動作中のみバッファを進める
+                g_gb_write ^= 1;
+                gb_core_set_fb(s_gb[g_gb_write]);
+            }
+            // ポーズ中は g_gb_write を進めない → 同じフレームを繰り返し表示
+        }
+
+        // ポーズ中はゲーム進行をスキップ（描画ディスパッチの後に判定）
         if (g_menu_active) continue;
 
         // ジョイパッド合成: タッチ D-Pad + ゲームボタン + POWER ボタン(A)
@@ -904,14 +917,5 @@ int main(void) {
 
         // ステータスメッセージカウントダウン
         if (g_status_ttl > 0) --g_status_ttl;
-
-        // Core 1 が前フレームを描画し終えていれば新フレームを渡す
-        if (!g_lcd_busy) {
-            g_lcd_idx  = g_gb_write;
-            __dmb();
-            g_lcd_busy = true;
-            g_gb_write ^= 1;
-            gb_core_set_fb(s_gb[g_gb_write]);
-        }
     }
 }
