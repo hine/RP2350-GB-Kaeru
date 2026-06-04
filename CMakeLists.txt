@@ -51,15 +51,15 @@ add_executable(picocalc_gb_kaeru
     src/drivers/audio/audio_pwm.c
     src/ui/menu/menu.c
     src/emu/gb/gb_core.c
-    lib/peanut-gb/examples/sdl2/minigb_apu/minigb_apu.c
+    src/audio/minigb_apu.c
     src/drivers/storage/hw_config.c
 )
 
 target_include_directories(picocalc_gb_kaeru PRIVATE
     src
+    src/audio
     lib/no-OS-FatFS-SD-SPI-RPi-Pico/FatFs_SPI/include
     lib/peanut-gb
-    lib/peanut-gb/examples/sdl2/minigb_apu
     compat   # hardware/rtc.h stub for RP2350 (removed in SDK)
 )
 
@@ -130,7 +130,7 @@ add_executable(amoled_gb_kaeru
     src/drivers/audio/es8311.c
     src/drivers/audio/audio_i2s.c
     src/emu/gb/gb_core.c
-    lib/peanut-gb/examples/sdl2/minigb_apu/minigb_apu.c
+    src/audio/minigb_apu.c
     src/storage/rom_flash.c
     src/storage/flash_meta.c
     src/storage/save_flash.c
@@ -146,9 +146,9 @@ pico_generate_pio_header(amoled_gb_kaeru
 
 target_include_directories(amoled_gb_kaeru PRIVATE
     src
+    src/audio
     lib/no-OS-FatFS-SD-SPI-RPi-Pico/FatFs_SPI/include
     lib/peanut-gb
-    lib/peanut-gb/examples/sdl2/minigb_apu
     compat
 )
 
