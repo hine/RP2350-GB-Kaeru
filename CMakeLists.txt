@@ -134,6 +134,7 @@ add_executable(amoled_gb_kaeru
     src/storage/rom_flash.c
     src/storage/flash_meta.c
     src/storage/save_flash.c
+    src/storage/save_sram.c
     src/drivers/storage/storage_sd.c
     src/boards/waveshare_touch_amoled_1_8/hw_config.c
     src/boards/waveshare_touch_amoled_1_8/display_stubs.c
