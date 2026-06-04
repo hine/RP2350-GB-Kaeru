@@ -73,7 +73,7 @@ static void apply_palette(int idx) {
 
 // Font0 (6×8) textSize=1 → 6×8px/char → 320/6 = 53文字/行
 // ヒントテキストは 53 文字以内に収める（16px ストリップに Y+4 で縦中央揃え）
-static const char HINTS[] = "ESC=Menu ,/[=A ./]=B Ent/BS=St Del=Sel WASD/^v<>=Dir";
+static const char HINTS[] = "ESC=Menu ./]=A ,/[=B Ent/BS=St Del=Sel WASD/^v<>=Dir";
 
 void lcd_init(void) {
     lcd.init();
