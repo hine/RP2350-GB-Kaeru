@@ -55,7 +55,7 @@ uint8_t menu_get_audio_enabled(void) { return s_audio_en;  }
 uint8_t menu_get_backlight(void)     { return s_backlight;  }
 
 static menu_action_t handle_confirm(int key) {
-    if (key == ',' || key == '[' || key == KEY_ENTER) {
+    if (key == '.' || key == ']' || key == KEY_ENTER) {
         s_confirm = false;
         if (s_confirm_sd_backup) {
             s_confirm_sd_backup = false;
@@ -72,7 +72,7 @@ static menu_action_t handle_confirm(int key) {
             return MENU_ACT_FLASH_CLEAR_EXEC;
         }
     }
-    if (key == '.' || key == ']') {
+    if (key == ',' || key == '[') {
         s_confirm             = false;
         s_confirm_sd_restore  = false;
         s_confirm_sd_backup   = false;
@@ -152,9 +152,9 @@ menu_action_t menu_tick(int key) {
         s_cursor = (s_cursor + 1) % N_ITEMS;
         lcd_menu_item_redraw(s_labels[prev],     prev,     false);
         lcd_menu_item_redraw(s_labels[s_cursor], s_cursor, true);
-    } else if (key == ',' || key == '[' || key == KEY_ENTER) {
+    } else if (key == '.' || key == ']' || key == KEY_ENTER) {
         return handle_select(s_cursor);
-    } else if (key == '.' || key == ']') {
+    } else if (key == ',' || key == '[') {
         s_open = false;
         return MENU_ACT_CLOSE;
     }
