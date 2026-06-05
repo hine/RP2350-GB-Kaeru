@@ -43,6 +43,14 @@ Game Boy emulator for RP2350-based devices, built to play *For the Frog the Bell
 
 ---
 
+## Screenshots
+
+| PicoCalc | AMOLED |
+|----------|--------|
+| ![PicoCalc](docs/images/picocalc_demo.jpg) | ![AMOLED](docs/images/amoled_demo.jpg) |
+
+---
+
 ## Hardware
 
 ### PicoCalc
@@ -278,6 +286,14 @@ RP2350 系デバイス向け Game Boy エミュレータ。「カエルの為に
 - タッチ入力（FT3168、1点タッチ）
 - タッチ操作: 十字キー / ゲームボタン / セーブ / スロット / ロード
 - ゲーム内メニュー（MENU タッチ）: パレット・音量・SD バックアップ/復元・Clear Flash・Full Erase Flash
+
+---
+
+## 動作イメージ
+
+| PicoCalc | AMOLED |
+|----------|--------|
+| ![PicoCalc](docs/images/picocalc_demo.jpg) | ![AMOLED](docs/images/amoled_demo.jpg) |
 
 ---
 
