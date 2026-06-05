@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.13)
 
-include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
+# PICO_SDK_PATH は cmake -D フラグ優先、未指定なら環境変数にフォールバック
+if(NOT PICO_SDK_PATH)
+    set(PICO_SDK_PATH $ENV{PICO_SDK_PATH})
+endif()
+include(${PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
 project(picocalc_gb C CXX ASM)
 
