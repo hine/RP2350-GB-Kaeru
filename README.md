@@ -30,14 +30,16 @@ Game Boy emulator for RP2350-based devices, built to play *For the Frog the Bell
 - 4 display palettes: DMG Green / Mono / Sepia / GB Pocket
 - PWM audio output (12-bit, ~32768 Hz, DMA IRQ driven)
 - Keyboard input (STM32 I2C controller)
-- In-game menu (ESC): palette, audio toggle, SD backup/restore, Flash clear
+- In-game menu (ESC): palette, audio toggle, SD backup/restore, Clear Flash, Full Erase Flash
 
 ### AMOLED
 
 - 160×144 → 320×288 2× scaled display on 368×448 AMOLED panel (~60 fps)
+- 10 display palettes: DMG Green / Dark Green / Mono / Sepia / Amber / Cool Blue / Teal / Lavender / Rose / Red Mono
 - I2S audio via ES8311 codec (32000 Hz, DMA IRQ driven)
 - Touch input (FT3168, 1-point)
-- Status bar touch controls: Save / Slot / Load
+- Touch controls: D-Pad / face buttons / save state / slot / load state
+- In-game menu (tap MENU button): palette, volume, SD backup/restore, Clear Flash, Full Erase Flash
 
 ---
 
@@ -75,8 +77,9 @@ Both targets share the same Flash layout:
 0x000000 – 0x0FFFFF  ( 1 MB)  Firmware
 0x100000 – 0x17FFFF  (512 KB) ROM image
 0x180000 – 0x187FFF  ( 32 KB) SRAM save
-0x188000 – 0x1C7FFF  (320 KB) Save states (10 slots × 32 KB)
-0x1C8000 – 0x1C8FFF  (  4 KB) Flash metadata
+0x188000 – 0x1D7FFF  (320 KB) Save states (10 slots × 32 KB)
+0x1D8000 – 0x1DFFFF  ( 32 KB) Reserved
+0x1E0000 – 0x1E0FFF  (  4 KB) Flash metadata
 ```
 
 ---
@@ -102,14 +105,16 @@ Both targets share the same Flash layout:
 
 | Area | Function |
 |------|---------|
-| Left half of control area | D-Pad (swipe direction from center) |
-| Top-left of button area | SELECT |
-| Top-right of button area | START |
-| Bottom-left of button area | B button |
-| Bottom-right of button area | A button |
-| Status bar — left zone | Save state |
-| Status bar — center | Cycle save slot (0–9) |
-| Status bar — right zone | Load state |
+| Left column of UI area | D-Pad (swipe direction from fixed center) |
+| Right column — top-left | SELECT |
+| Right column — top-right | START |
+| Right column — bottom-left | B button |
+| Right column — bottom-right | A button |
+| Center column — row 1 | Open / close menu |
+| Center column — row 2 | Save state |
+| Center column — row 3 | Load state |
+| Center column — row 4 | Cycle save slot (0–9) |
+| POWER button (physical) | A button |
 
 ---
 
@@ -163,6 +168,17 @@ cp build/picocalc_gb_kaeru.uf2 /media/$USER/RPI-RP2/
 # AMOLED
 cp build/amoled_gb_kaeru.uf2 /media/$USER/RPI-RP2/
 ```
+
+### Flash Erase Options
+
+| Operation | What is erased | Time | Access |
+|-----------|---------------|------|--------|
+| **Clear Flash** (in-app) | Metadata flags only (~50 ms); raw data stays but is unreachable | ~50 ms | Menu |
+| **Full Erase Flash** (in-app) | ROM, SRAM save, all 10 save-state slots, metadata — physically erased; device reboots automatically | ~2.5 s | Menu |
+| `picotool erase --all` | Entire Flash including firmware | ~3 s | USB (BOOTSEL) |
+
+Use **Full Erase Flash** before a major firmware update or when giving the device to someone else.  
+Hold BOOTSEL and connect via USB to run `picotool erase --all` only when you also want to erase the firmware.
 
 ---
 
@@ -234,14 +250,16 @@ RP2350 系デバイス向け Game Boy エミュレータ。「カエルの為に
 - 4 種類のパレット: DMGグリーン / モノクロ / セピア / GBポケット
 - PWM 音声出力（12bit、～32768Hz、DMA IRQ 駆動）
 - キーボード入力（STM32 I2C コントローラ）
-- ゲーム内メニュー（ESCキー）: パレット切替・音声ON/OFF・SD バックアップ・Flash 全消去
+- ゲーム内メニュー（ESCキー）: パレット切替・音声ON/OFF・SD バックアップ・Clear Flash・Full Erase Flash
 
 ### AMOLED
 
 - 160×144 → 320×288 の 2倍スケールを 368×448 AMOLED パネルに表示（約60fps）
+- 10 種類のパレット: DMGグリーン / ダークグリーン / モノクロ / セピア / アンバー / クールブルー / ティール / ラベンダー / ローズ / レッドモノ
 - I2S 音声（ES8311 コーデック / 32000Hz / DMA IRQ 駆動）
 - タッチ入力（FT3168、1点タッチ）
-- ステータスバーでセーブ操作（タッチ）
+- タッチ操作: 十字キー / ゲームボタン / セーブ / スロット / ロード
+- ゲーム内メニュー（MENU タッチ）: パレット・音量・SD バックアップ/復元・Clear Flash・Full Erase Flash
 
 ---
 
@@ -278,7 +296,8 @@ RP2350 系デバイス向け Game Boy エミュレータ。「カエルの為に
 0x100000  512 KB   ROM データ（XIP 直読み）
 0x180000   32 KB   SRAM セーブ
 0x188000  320 KB   セーブステート × 10 スロット（各 32 KB）
-0x1C8000    4 KB   Flash メタデータ
+0x1D8000   32 KB   予約済み
+0x1E0000    4 KB   Flash メタデータ
 ```
 
 ---
@@ -304,14 +323,16 @@ RP2350 系デバイス向け Game Boy エミュレータ。「カエルの為に
 
 | エリア | 機能 |
 |--------|------|
-| 操作エリア左半分 | 十字キー（中心からの方向） |
-| ボタンエリア左上 | SELECT |
-| ボタンエリア右上 | START |
-| ボタンエリア左下 | B ボタン |
-| ボタンエリア右下 | A ボタン |
-| ステータスバー左 | ステートセーブ |
-| ステータスバー中央 | スロット切替（0〜9） |
-| ステータスバー右 | ステートロード |
+| UI エリア左列 | 十字キー（固定中心からの方向） |
+| 右列・左上 | SELECT |
+| 右列・右上 | START |
+| 右列・左下 | B ボタン |
+| 右列・右下 | A ボタン |
+| 中央列・行 1 | メニュー 開閉 |
+| 中央列・行 2 | ステートセーブ |
+| 中央列・行 3 | ステートロード |
+| 中央列・行 4 | スロット切替（0〜9） |
+| POWER ボタン（物理） | A ボタン |
 
 ---
 
