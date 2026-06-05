@@ -39,7 +39,7 @@ target_link_libraries(LovyanGFX PUBLIC
 )
 
 add_executable(picocalc_gb_kaeru
-    src/app/main.c
+    src/app/main_picocalc.c
     src/drivers/display/video_lgfx.cpp
     src/drivers/input/input_keyboard.c
     src/drivers/storage/storage_sd.c
@@ -88,38 +88,7 @@ pico_add_extra_outputs(picocalc_gb_kaeru)
 pico_enable_stdio_usb(picocalc_gb_kaeru 0)
 pico_enable_stdio_uart(picocalc_gb_kaeru 0)
 
-# ── AMOLED タッチ確認テスト (Phase 2a) ─────────────────────────────────────────
-# ターゲット: Waveshare RP2350-Touch-AMOLED-1.8
-# printf → USB CDC (接続中の USB ケーブルそのまま使用)
-add_executable(amoled_touch_test
-    src/app/main_touch_test.c
-    src/drivers/display/qspi_pio.c
-    src/drivers/display/amoled_1in8.c
-    src/drivers/input/ft3168_touch.c
-)
-
-pico_generate_pio_header(amoled_touch_test
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/drivers/display/qspi.pio
-)
-
-target_include_directories(amoled_touch_test PRIVATE
-    src
-)
-
-target_link_libraries(amoled_touch_test
-    pico_stdlib
-    hardware_i2c
-    hardware_gpio
-    hardware_pio
-    hardware_dma
-    hardware_clocks
-)
-
-pico_add_extra_outputs(amoled_touch_test)
-pico_enable_stdio_usb(amoled_touch_test 1)
-pico_enable_stdio_uart(amoled_touch_test 0)
-
-# ── AMOLED GB エミュレータ (Phase 3) ────────────────────────────────────────────
+# ── AMOLED GB エミュレータ ──────────────────────────────────────────────────────
 # ターゲット: Waveshare RP2350-Touch-AMOLED-1.8
 # SD カード(SPI1 GP25-28)からの ROM 書き込み対応
 add_executable(amoled_gb_kaeru
@@ -176,30 +145,3 @@ target_compile_definitions(amoled_gb_kaeru PRIVATE
 pico_add_extra_outputs(amoled_gb_kaeru)
 pico_enable_stdio_usb(amoled_gb_kaeru 1)
 pico_enable_stdio_uart(amoled_gb_kaeru 0)
-
-# ── AMOLED サウンドテスト (Phase 2b) ─────────────────────────────────────────
-# ES8311 I2C 初期化 → PIO MCLK + I2S → 440 Hz サイン波出力
-# FatFS なし / ディスプレイなし — USB serial でデバッグ出力
-add_executable(amoled_sound_test
-    src/app/main_sound_test.c
-    src/drivers/audio/es8311.c
-    src/drivers/audio/audio_i2s.c
-)
-
-target_include_directories(amoled_sound_test PRIVATE
-    src
-)
-
-target_link_libraries(amoled_sound_test
-    pico_stdlib
-    hardware_i2c
-    hardware_gpio
-    hardware_pio
-    hardware_dma
-    hardware_clocks
-    m
-)
-
-pico_add_extra_outputs(amoled_sound_test)
-pico_enable_stdio_usb(amoled_sound_test 1)
-pico_enable_stdio_uart(amoled_sound_test 0)
