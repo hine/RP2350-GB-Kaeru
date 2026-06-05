@@ -171,6 +171,7 @@
 | 2026-06-05 | minigb_apu を src/audio/ にローカルコピーして3件のバグを修正 | CH4 LFSR（左シフト→右シフト・出力ビット誤り）、CH1 sweep down（uint16_t *= -1 の UB）、CH1 sweep shift=0 誤 disable。コイン音が大幅改善。PicoCalc / AMOLED 両対応 |
 | 2026-06-05 | CH4 出力を 25%（>> 2）にスケール | LFSR 修正後も CH4 が他チャンネルより目立ちすぎていたため。チャンネル消音テストで CH4 が原因と特定。PicoCalc / AMOLED 両対応 |
 | 2026-06-05 | テストアプリ削除・ディレクトリ整理 | main.c→main_picocalc.c リネーム、amoled_sound_test/touch_test 削除、PicoCalc hw_config.c を src/boards/picocalc/ に移動（AMOLED と対称化）|
+| 2026-06-05 | main_*.c の配置方針を決定 | 現状は CMake がボードごとに main_picocalc.c / main_amoled.c を選択するパターン A。ボードが増えた場合は「単一 main.c → board_run() を呼ぶ」パターン C（各ボードの実装を src/boards/<board>/app.c に収める）への移行を想定。現時点では 2 ボードのためパターン A を維持。|
 
 ---
 
