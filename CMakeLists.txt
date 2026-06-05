@@ -52,7 +52,7 @@ add_executable(picocalc_gb_kaeru
     src/ui/menu/menu.c
     src/emu/gb/gb_core.c
     src/audio/minigb_apu.c
-    src/drivers/storage/hw_config.c
+    src/boards/picocalc/hw_config.c
 )
 
 target_include_directories(picocalc_gb_kaeru PRIVATE
