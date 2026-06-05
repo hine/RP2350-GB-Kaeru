@@ -80,7 +80,7 @@ source ~/.bashrc
 プロジェクトルートに `.envrc` が用意されているので、初回のみ許可する：
 
 ```
-cd ~/Projects/PicoCalc-GB-Kaeru
+cd ~/Projects/RP2350-GB-Kaeru-dev
 direnv allow .
 ```
 
@@ -116,8 +116,8 @@ picotool version
 
 ```
 cd ~/Projects
-git clone --recurse-submodules <repo-url> PicoCalc-GB-Kaeru
-cd PicoCalc-GB-Kaeru
+git clone --recurse-submodules <repo-url> RP2350-GB-Kaeru-dev
+cd RP2350-GB-Kaeru-dev
 ```
 
 サブモジュールが未取得の場合：
@@ -131,7 +131,7 @@ git submodule update --init --recursive
 ## 6. ビルド
 
 ```
-cd ~/Projects/RP2350-GB-Kaeru
+cd ~/Projects/RP2350-GB-Kaeru-dev
 
 cmake -S . -B build \
   -G Ninja \
@@ -152,8 +152,6 @@ cmake --build build --target amoled_gb_kaeru   -j$(nproc)
 ```
 build/picocalc_gb_kaeru.uf2   # PicoCalc 向け
 build/amoled_gb_kaeru.uf2     # AMOLED 向け
-build/amoled_sound_test.uf2   # AMOLED 音声単体テスト
-build/amoled_touch_test.uf2   # AMOLED タッチ単体テスト
 ```
 
 ---
@@ -182,18 +180,7 @@ picotool reboot
 | ターゲット | USB stdio | UART |
 |-----------|-----------|------|
 | `picocalc_gb_kaeru` | 無効（TinyUSB が SPI/DMA と競合するため） | 無効 |
-| `amoled_gb_kaeru` | **有効**（USB CDC） | 無効 |
-| `amoled_sound_test` | **有効** | 無効 |
-| `amoled_touch_test` | **有効** | 無効 |
-
-AMOLED ターゲットは USB 接続中にターミナルを開くと printf 出力を確認できる：
-
-```
-# Linux / WSL
-screen /dev/ttyACM0 115200
-
-# または minicom, picocom 等
-```
+| `amoled_gb_kaeru` | 無効（リリース向けクリーンアップで無効化） | 無効 |
 
 ---
 
