@@ -118,6 +118,24 @@ Both targets share the same Flash layout:
 
 ---
 
+## Download & Flash
+
+Pre-built UF2 binaries are attached to each [Release](../../releases).
+
+1. Download the UF2 for your target:
+   - `picocalc_gb_kaeru.uf2` — PicoCalc
+   - `amoled_gb_kaeru.uf2` — AMOLED
+2. Hold **BOOTSEL** and connect the device via USB.
+3. Copy the UF2 to the mounted drive:
+
+```sh
+cp picocalc_gb_kaeru.uf2 /media/$USER/RPI-RP2/
+```
+
+The device reboots automatically when the copy completes.
+
+---
+
 ## Build
 
 ### Requirements
@@ -333,6 +351,24 @@ RP2350 系デバイス向け Game Boy エミュレータ。「カエルの為に
 | 中央列・行 3 | ステートロード |
 | 中央列・行 4 | スロット切替（0〜9） |
 | POWER ボタン（物理） | A ボタン |
+
+---
+
+## ダウンロード & 書き込み
+
+ビルド済み UF2 は各 [Release](../../releases) に添付されています。
+
+1. ターゲットに合った UF2 をダウンロード：
+   - `picocalc_gb_kaeru.uf2` — PicoCalc
+   - `amoled_gb_kaeru.uf2` — AMOLED
+2. **BOOTSEL** ボタンを押しながら USB 接続する。
+3. マウントされたドライブに UF2 をコピーする：
+
+```sh
+cp picocalc_gb_kaeru.uf2 /media/$USER/RPI-RP2/
+```
+
+コピー完了後、デバイスは自動的に再起動します。
 
 ---
 
