@@ -1,6 +1,9 @@
 #include "drivers/audio/es8311.h"
 #include "pico/stdlib.h"
+#include "pico/time.h"
 #include <string.h>
+
+#define ES8311_I2C_TIMEOUT_US 5000  /* 5 ms — prevents hang on stuck I2C bus */
 
 // ── Register map ─────────────────────────────────────────────────────────────
 #define REG00_RESET     0x00
@@ -62,15 +65,21 @@ static const struct coeff_div coeff_table[] = {
 };
 
 // ── I2C helpers ───────────────────────────────────────────────────────────────
+/* Use timeout variants: FT3168 and ES8311 share the same I2C bus, so a hung
+ * ES8311 transaction would otherwise block the touch reads on Core 0 forever. */
 static void wr(i2c_inst_t *i2c, uint8_t reg, uint8_t val) {
     uint8_t buf[2] = {reg, val};
-    i2c_write_blocking(i2c, ES8311_I2C_ADDR, buf, 2, false);
+    i2c_write_blocking_until(i2c, ES8311_I2C_ADDR, buf, 2, false,
+                             make_timeout_time_us(ES8311_I2C_TIMEOUT_US));
 }
 
 static uint8_t rd(i2c_inst_t *i2c, uint8_t reg) {
     uint8_t val = 0;
-    i2c_write_blocking(i2c, ES8311_I2C_ADDR, &reg, 1, true);
-    i2c_read_blocking(i2c, ES8311_I2C_ADDR, &val, 1, false);
+    int r = i2c_write_blocking_until(i2c, ES8311_I2C_ADDR, &reg, 1, true,
+                                     make_timeout_time_us(ES8311_I2C_TIMEOUT_US));
+    if (r < 0) return 0;
+    i2c_read_blocking_until(i2c, ES8311_I2C_ADDR, &val, 1, false,
+                            make_timeout_time_us(ES8311_I2C_TIMEOUT_US));
     return val;
 }
 

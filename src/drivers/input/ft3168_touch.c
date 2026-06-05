@@ -1,6 +1,12 @@
 #include "drivers/input/ft3168_touch.h"
 #include "pico/stdlib.h"
+#include "pico/time.h"
 #include <stdio.h>
+
+/* 3 ms: 13 bytes at 400 kHz takes ~0.4 ms; 3 ms gives 7× safety margin.
+ * A timeout here means the I2C bus is stuck; return gracefully rather than
+ * blocking Core 0 and freezing the menu. */
+#define FT3168_I2C_TIMEOUT_US 3000
 
 // Registers
 #define REG_FINGER_NUM   0x02
@@ -12,19 +18,26 @@
 
 static void write_byte(i2c_inst_t *i2c, uint8_t reg, uint8_t val) {
     uint8_t buf[2] = {reg, val};
-    i2c_write_blocking(i2c, FT3168_I2C_ADDR, buf, 2, false);
+    i2c_write_blocking_until(i2c, FT3168_I2C_ADDR, buf, 2, false,
+                             make_timeout_time_us(FT3168_I2C_TIMEOUT_US));
 }
 
 static uint8_t read_byte(i2c_inst_t *i2c, uint8_t reg) {
     uint8_t val = 0;
-    i2c_write_blocking(i2c, FT3168_I2C_ADDR, &reg, 1, true);
-    i2c_read_blocking(i2c, FT3168_I2C_ADDR, &val, 1, false);
+    int r = i2c_write_blocking_until(i2c, FT3168_I2C_ADDR, &reg, 1, true,
+                                     make_timeout_time_us(FT3168_I2C_TIMEOUT_US));
+    if (r < 0) return 0;
+    i2c_read_blocking_until(i2c, FT3168_I2C_ADDR, &val, 1, false,
+                            make_timeout_time_us(FT3168_I2C_TIMEOUT_US));
     return val;
 }
 
 static void read_bytes(i2c_inst_t *i2c, uint8_t reg, uint8_t *buf, size_t len) {
-    i2c_write_blocking(i2c, FT3168_I2C_ADDR, &reg, 1, true);
-    i2c_read_blocking(i2c, FT3168_I2C_ADDR, buf, len, false);
+    int r = i2c_write_blocking_until(i2c, FT3168_I2C_ADDR, &reg, 1, true,
+                                     make_timeout_time_us(FT3168_I2C_TIMEOUT_US));
+    if (r < 0) return;
+    i2c_read_blocking_until(i2c, FT3168_I2C_ADDR, buf, len, false,
+                            make_timeout_time_us(FT3168_I2C_TIMEOUT_US));
 }
 
 static void do_reset(uint rst_pin) {
