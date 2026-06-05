@@ -14,8 +14,10 @@ saves/*
 
 samples/
 
-# 開発内部メモ（公開リポジトリには含めない）
+# 開発内部メモ・設定（公開リポジトリには含めない）
 SCRATCH.md
 PROGRESS.md
+CLAUDE.md
 Spec.md
 buttons.md
+.vscode/
