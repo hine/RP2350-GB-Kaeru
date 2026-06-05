@@ -1,4 +1,3 @@
-#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include "pico/stdlib.h"
@@ -17,7 +16,6 @@
 #include "storage/rom_flash.h"
 #include "storage/save_flash.h"
 #include "storage/save_sram.h"
-#include "storage/save_state.h"
 #include "emu/gb/gb_core.h"
 #include "drivers/storage/storage_sd.h"
 #include "drivers/display/amoled_ui_img.h"
