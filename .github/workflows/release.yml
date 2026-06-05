@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  PICO_SDK_VERSION: "2.2.0"
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build \
+            gcc-arm-none-eabi libnewlib-arm-none-eabi \
+            libstdc++-arm-none-eabi-newlib \
+            libusb-1.0-0-dev pkg-config
+
+      - name: Clone Pico SDK
+        run: |
+          git clone --depth 1 --branch ${{ env.PICO_SDK_VERSION }} \
+            https://github.com/raspberrypi/pico-sdk.git ${{ runner.temp }}/pico-sdk
+          cd ${{ runner.temp }}/pico-sdk && git submodule update --init --depth 1
+
+      - name: Build and install picotool
+        run: |
+          git clone --depth 1 \
+            https://github.com/raspberrypi/picotool.git ${{ runner.temp }}/picotool
+          cmake -S ${{ runner.temp }}/picotool \
+                -B ${{ runner.temp }}/picotool/build \
+                -DPICO_SDK_PATH=${{ runner.temp }}/pico-sdk
+          cmake --build ${{ runner.temp }}/picotool/build -j$(nproc)
+          sudo cmake --install ${{ runner.temp }}/picotool/build
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DPICO_SDK_PATH=${{ runner.temp }}/pico-sdk \
+            -DPICO_BOARD=pico2 \
+            -DPICO_PLATFORM=rp2350
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/picocalc_gb_kaeru.uf2
+            build/amoled_gb_kaeru.uf2
+          generate_release_notes: true

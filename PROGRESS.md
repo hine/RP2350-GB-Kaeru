@@ -24,6 +24,40 @@
 - `git log --diff-filter=A -- <ファイル名>` でそのファイルの初回コミットを確認する
 - このリポジトリの md ファイルは全て本プロジェクト内で作成されたもの（フォーク元由来ではない）
 
+### リポジトリ運用方針
+
+**ブランチ構成：**
+
+| ブランチ | 用途 |
+|---|---|
+| `main` | 常にリリース可能な状態。タグはここに打つ |
+| `dev` | 通常の開発ブランチ。`main` へは PR でマージ |
+| `board/<name>` | 新デバイス移植作業。安定したら `dev` へマージ |
+| `fix/<name>` | バグ修正。`dev` へマージ後 `main` へ |
+
+**リモート構成（2リモート運用）：**
+
+```
+origin  → プライベートGitHub（全ブランチ、PC 間共有）
+public  → パブリックGitHub（main + タグのみ push）
+```
+
+新規セットアップ時:
+```bash
+git remote add public git@github.com:<user>/RP2350-GB-Kaeru.git
+```
+
+リリース時:
+```bash
+git push public main
+git push public v1.x.x
+```
+
+タグ push で GitHub Actions が自動ビルドし UF2 を Release に添付する（`.github/workflows/release.yml`）。
+
+**公開リポジトリに含めないファイル（`.gitignore` で管理）：**
+`SCRATCH.md` / `Spec.md` / `buttons.md` — ローカルには残る、コミット・push されない
+
 ---
 
 最終更新: 2026-06-05

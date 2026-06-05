@@ -13,3 +13,8 @@ saves/*
 *.state
 
 samples/
+
+# 開発内部メモ（公開リポジトリには含めない）
+SCRATCH.md
+Spec.md
+buttons.md
