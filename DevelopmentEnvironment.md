@@ -239,6 +239,24 @@ git push
 - 方針・仕様を決めたら **決定事項ログに追記する**
 - コミット前に更新し、コードの変更と一緒にコミットする
 
+### UI 画像ヘッダの再生成
+
+`assets/amoled_ui.png` を変更した場合は以下のコマンドでヘッダを再生成する：
+
+```sh
+python3 tools/gen_ui_img.py assets/amoled_ui.png \
+    src/drivers/display/amoled_ui_img.h \
+    amoled_ui_img
+```
+
+依存パッケージ：
+
+```sh
+pip install pillow
+```
+
+出力形式：RGB565 big-endian、`uint16_t amoled_ui_img[H][W]`
+
 ### コミット粒度の指針
 
 - **単一 Issue 単位でコミット** — 1コミット＝1つの目的
