@@ -6,6 +6,12 @@
  *
  * minigb_apu emulates the audio processing unit (APU) of the Game Boy. This
  * project is based on MiniGBS by Alex Baines: https://github.com/baines/MiniGBS
+ *
+ * Local modifications (bugs fixed vs upstream):
+ *   - CH4 LFSR: corrected to right-shift with XOR of bits 0 and 1, output
+ *     HIGH when bit 0 is clear, 7-bit mode inserts into bit 6 (not bit 5).
+ *   - CH1 sweep down: replaced undefined `uint16_t *= -1` with subtraction.
+ *   - CH1 sweep shift=0: removed erroneous channel-disable when shift==0.
  */
 
 #include <stdbool.h>
@@ -53,83 +59,32 @@ static void chan_enable(struct minigb_apu_ctx *ctx,
 	ctx->audio_mem[0xFF26 - AUDIO_ADDR_COMPENSATION] = val;
 }
 
-/* ── Frame Sequencer Tick Functions (discrete, called at exact rates) ────── */
-
-/* Called at 256 Hz (steps 0,2,4,6). */
-static void tick_len(struct minigb_apu_ctx *ctx, uint_fast8_t ci)
+static void update_env(struct chan *c)
 {
-	struct chan *c = &ctx->chans[ci];
-	if (!c->len.enabled || c->len.ctr == 0)
-		return;
-	if (--c->len.ctr == 0)
-		chan_enable(ctx, ci, 0);
-}
+	c->env.counter += c->env.inc;
 
-/* Called at 64 Hz (step 7). */
-static void tick_env(struct chan *c)
-{
-	if (c->env.step == 0)
-		return;
-	if (--c->env.ctr == 0) {
-		c->env.ctr = c->env.step;
-		if (c->env.up) {
-			if (c->volume < MAX_CHAN_VOLUME) c->volume++;
-		} else {
-			if (c->volume > 0) c->volume--;
-		}
-	}
-}
-
-/* Called at 128 Hz (steps 2,6) — CH1 only. */
-static void tick_sweep(struct minigb_apu_ctx *ctx)
-{
-	struct chan *c = &ctx->chans[0];
-	if (c->sweep.rate == 0)
-		return;
-	if (--c->sweep.ctr == 0) {
-		c->sweep.ctr = c->sweep.rate;
-		if (c->sweep.shift != 0) {
-			uint16_t delta    = c->sweep.freq >> c->sweep.shift;
-			uint16_t new_freq = c->sweep.down
-				? c->sweep.freq - delta
-				: c->sweep.freq + delta;
-			if (new_freq > 2047) {
-				chan_enable(ctx, 0, 0);
-			} else {
-				c->sweep.freq = new_freq;
-				c->freq       = new_freq;
-				set_note_freq(c);
+	while (c->env.counter > FREQ_INC_REF) {
+		if (c->env.step) {
+			c->volume += c->env.up ? 1 : -1;
+			if (c->volume == 0 || c->volume == MAX_CHAN_VOLUME) {
+				c->env.inc = 0;
 			}
+			c->volume = MAX(0, MIN(MAX_CHAN_VOLUME, c->volume));
 		}
+		c->env.counter -= FREQ_INC_REF;
 	}
 }
 
-/* Advance the 512 Hz frame sequencer by one step.
- * Step schedule (Pan Docs):
- *   0: Length   2: Length+Sweep   4: Length   6: Length+Sweep
- *   1,3,5: -    7: Envelope
- */
-static void tick_frame_sequencer(struct minigb_apu_ctx *ctx)
+static void update_len(struct minigb_apu_ctx *ctx, struct chan *c)
 {
-	uint8_t step = ctx->frame_seq_step;
+	if (!c->len.enabled)
+		return;
 
-	/* Length counter: steps 0,2,4,6  (256 Hz) */
-	if ((step & 1) == 0) {
-		for (uint_fast8_t i = 0; i < 4; i++)
-			tick_len(ctx, i);
+	c->len.counter += c->len.inc;
+	if (c->len.counter > FREQ_INC_REF) {
+		chan_enable(ctx, c - ctx->chans, 0);
+		c->len.counter = 0;
 	}
-
-	/* Sweep: steps 2,6  (128 Hz — (step & 3) == 2 catches both 010 and 110) */
-	if ((step & 3) == 2)
-		tick_sweep(ctx);
-
-	/* Envelope: step 7  (64 Hz) */
-	if (step == 7) {
-		for (uint_fast8_t i = 0; i < 4; i++)
-			tick_env(&ctx->chans[i]);
-	}
-
-	ctx->frame_seq_step = (step + 1) & 7;
 }
 
 static bool update_freq(struct chan *c, uint32_t *pos)
@@ -147,9 +102,34 @@ static bool update_freq(struct chan *c, uint32_t *pos)
 	}
 }
 
+/* FIX: sweep down used `uint16_t inc *= -1` (unsigned overflow UB → wrong
+ * frequency), and shift==0 incorrectly disabled the channel. */
+static void update_sweep(struct chan *c)
+{
+	c->sweep.counter += c->sweep.inc;
+
+	while (c->sweep.counter > FREQ_INC_REF) {
+		if (c->sweep.shift) {
+			uint16_t delta   = c->sweep.freq >> c->sweep.shift;
+			uint16_t new_freq = c->sweep.down
+				? c->sweep.freq - delta
+				: c->sweep.freq + delta;
+
+			if (new_freq > 2047) {
+				c->enabled = 0;
+			} else {
+				c->freq       = new_freq;
+				c->sweep.freq = new_freq;
+				set_note_freq(c);
+			}
+		}
+		/* shift==0: timer ticks but frequency is not changed (no disable). */
+		c->sweep.counter -= FREQ_INC_REF;
+	}
+}
 
 static void update_square(struct minigb_apu_ctx *ctx, audio_sample_t *samples,
-		const bool ch2, uint_fast16_t offset, uint_fast16_t count)
+		const bool ch2)
 {
 	struct chan *c = &ctx->chans[ch2];
 
@@ -158,11 +138,17 @@ static void update_square(struct minigb_apu_ctx *ctx, audio_sample_t *samples,
 
 	set_note_freq(c);
 
-	for (uint_fast16_t i = offset; i < offset + count; i += 2) {
+	for (uint_fast16_t i = 0; i < AUDIO_NSAMPLES; i += 2) {
+		update_len(ctx, c);
 		if (!c->enabled)
 			return;
+
+		update_env(c);
 		if (!c->volume)
 			continue;
+
+		if (!ch2)
+			update_sweep(c);
 
 		uint32_t pos = 0;
 		uint32_t prev_pos = 0;
@@ -200,8 +186,7 @@ static uint8_t wave_sample(struct minigb_apu_ctx *ctx,
 	return volume ? (sample >> (volume - 1)) : 0;
 }
 
-static void update_wave(struct minigb_apu_ctx *ctx, audio_sample_t *samples,
-		uint_fast16_t offset, uint_fast16_t count)
+static void update_wave(struct minigb_apu_ctx *ctx, audio_sample_t *samples)
 {
 	struct chan *c = &ctx->chans[2];
 
@@ -211,7 +196,8 @@ static void update_wave(struct minigb_apu_ctx *ctx, audio_sample_t *samples,
 	set_note_freq(c);
 	c->freq_inc *= 2;
 
-	for (uint_fast16_t i = offset; i < offset + count; i += 2) {
+	for (uint_fast16_t i = 0; i < AUDIO_NSAMPLES; i += 2) {
+		update_len(ctx, c);
 		if (!c->enabled)
 			return;
 
@@ -244,8 +230,7 @@ static void update_wave(struct minigb_apu_ctx *ctx, audio_sample_t *samples,
 	}
 }
 
-static void update_noise(struct minigb_apu_ctx *ctx, audio_sample_t *samples,
-		uint_fast16_t offset, uint_fast16_t count)
+static void update_noise(struct minigb_apu_ctx *ctx, audio_sample_t *samples)
 {
 	struct chan *c = &ctx->chans[3];
 
@@ -265,9 +250,12 @@ static void update_noise(struct minigb_apu_ctx *ctx, audio_sample_t *samples,
 		c->freq_inc = freq * (uint32_t)(FREQ_INC_REF / AUDIO_SAMPLE_RATE);
 	}
 
-	for (uint_fast16_t i = offset; i < offset + count; i += 2) {
+	for (uint_fast16_t i = 0; i < AUDIO_NSAMPLES; i += 2) {
+		update_len(ctx, c);
 		if (!c->enabled)
 			return;
+
+		update_env(c);
 		if (!c->volume)
 			continue;
 
@@ -276,11 +264,15 @@ static void update_noise(struct minigb_apu_ctx *ctx, audio_sample_t *samples,
 		int32_t sample    = 0;
 
 		while (update_freq(c, &pos)) {
-			/* Pan Docs: XOR bits 1 and 0, shift right, insert at bit 14.
-			 * In 7-bit mode also insert at bit 6.
-			 * Output is HIGH when bit 0 is clear. */
-			uint16_t xor_bit = (c->noise.lfsr_reg ^ (c->noise.lfsr_reg >> 1)) & 1;
-			c->noise.lfsr_reg = (c->noise.lfsr_reg >> 1) | (xor_bit << 14);
+			/* FIX: Pan Docs LFSR — XOR bits 0 and 1, shift right,
+			 * insert into bit 14; in 7-bit mode also into bit 6.
+			 * Output is HIGH (positive) when bit 0 is clear.
+			 * Original code left-shifted and used the output value
+			 * as the feedback bit, producing completely wrong noise. */
+			uint16_t xor_bit = (c->noise.lfsr_reg ^
+					     (c->noise.lfsr_reg >> 1)) & 1;
+			c->noise.lfsr_reg = (c->noise.lfsr_reg >> 1) |
+					    (xor_bit << 14);
 			if (!c->noise.lfsr_wide)
 				c->noise.lfsr_reg |= (xor_bit << 6);
 
@@ -308,32 +300,10 @@ void minigb_apu_audio_callback(struct minigb_apu_ctx *ctx,
 		audio_sample_t *stream)
 {
 	memset(stream, 0, AUDIO_SAMPLES_TOTAL * sizeof(audio_sample_t));
-
-	/* Process the buffer in chunks of CHUNK_SAMPLES so the frame sequencer
-	 * fires between chunks.  At 32768 Hz the sequencer fires every 64
-	 * samples (512 Hz), so one tick fires at the end of each chunk.
-	 * Short sounds (coins, battle SFX) whose length counters expire
-	 * mid-buffer are silenced only for the remaining chunks, not the whole
-	 * buffer. */
-#define CHUNK_SAMPLES 64u
-	for (uint_fast16_t offset = 0; offset < AUDIO_NSAMPLES; offset += CHUNK_SAMPLES) {
-		uint_fast16_t n = CHUNK_SAMPLES;
-		if (offset + n > AUDIO_NSAMPLES)
-			n = AUDIO_NSAMPLES - offset;
-
-		update_square(ctx, stream, 0, offset, n);
-		update_square(ctx, stream, 1, offset, n);
-		update_wave(ctx, stream, offset, n);
-		update_noise(ctx, stream, offset, n);
-
-		/* 512 counts per mono sample; fire when >= AUDIO_SAMPLE_RATE. */
-		ctx->frame_seq_count += 512u * n;
-		while (ctx->frame_seq_count >= (uint32_t)AUDIO_SAMPLE_RATE) {
-			ctx->frame_seq_count -= (uint32_t)AUDIO_SAMPLE_RATE;
-			tick_frame_sequencer(ctx);
-		}
-	}
-#undef CHUNK_SAMPLES
+	update_square(ctx, stream, 0);
+	update_square(ctx, stream, 1);
+	update_wave(ctx, stream);
+	update_noise(ctx, stream);
 }
 
 static void chan_trigger(struct minigb_apu_ctx *ctx, uint_fast8_t i)
@@ -343,26 +313,52 @@ static void chan_trigger(struct minigb_apu_ctx *ctx, uint_fast8_t i)
 	chan_enable(ctx, i, 1);
 	c->volume = c->volume_init;
 
-	// Volume envelope: load period counter (if step=0 load 8 per Pan Docs)
+	// volume envelope
 	{
-		uint8_t val = ctx->audio_mem[(0xFF12 + (i * 5)) - AUDIO_ADDR_COMPENSATION];
+		/* LUT created in Julia with:
+		 * `(FREQ_INC_MULT * 64)./vcat(8, 1:7)`
+		 * Must be recreated when FREQ_INC_MULT modified.
+		 */
+		const uint32_t inc_lut[8] = {
+#if FREQ_INC_MULT == 16
+			128, 1024, 512, 341,
+			256,  205, 171, 146
+#elif FREQ_INC_MULT == 64
+		        512,  4096, 2048, 1365,
+		        1024,  819,  683,  585
+#elif FREQ_INC_MULT == 105
+		        /* Multiples of 105 provide integer values. */
+		        840,  6720, 3360, 2240,
+		        1680, 1344, 1120,  960
+#else
+#error "LUT not calculated for this value of FREQ_INC_MULT"
+#endif
+		};
+		uint8_t val;
+
+		val = ctx->audio_mem[(0xFF12 + (i * 5)) - AUDIO_ADDR_COMPENSATION];
+
 		c->env.step = val & 0x7;
-		c->env.up   = (val >> 3) & 1;
-		c->env.ctr  = c->env.step ? c->env.step : 8;
+		c->env.up   = val & 0x8;
+		c->env.inc  = inc_lut[c->env.step];
+		c->env.counter = 0;
 	}
 
-	// Frequency sweep (CH1 only): load shadow freq and period counter
+	// freq sweep
 	if (i == 0) {
 		uint8_t val = ctx->audio_mem[0xFF10 - AUDIO_ADDR_COMPENSATION];
+
 		c->sweep.freq  = c->freq;
 		c->sweep.rate  = (val >> 4) & 0x07;
-		c->sweep.down  = (val & 0x08) != 0;
+		c->sweep.down  = (val & 0x08);
 		c->sweep.shift = (val & 0x07);
-		c->sweep.ctr   = c->sweep.rate ? c->sweep.rate : 8;
+		c->sweep.inc   = c->sweep.rate ?
+			((128u * FREQ_INC_REF) / (c->sweep.rate * AUDIO_SAMPLE_RATE)) : 0;
+		c->sweep.counter = FREQ_INC_REF;
 	}
 
-	// Length counter: per Pan Docs, reload with max if currently 0
 	int len_max = 64;
+
 	if (i == 2) { // wave
 		len_max = 256;
 		c->val = 0;
@@ -370,8 +366,9 @@ static void chan_trigger(struct minigb_apu_ctx *ctx, uint_fast8_t i)
 		c->noise.lfsr_reg = 0xFFFF;
 		c->val = VOL_INIT_MIN / MAX_CHAN_VOLUME;
 	}
-	if (c->len.ctr == 0)
-		c->len.ctr = (uint16_t)len_max;
+
+	c->len.inc = (256u * FREQ_INC_REF) / (AUDIO_SAMPLE_RATE * (len_max - c->len.load));
+	c->len.counter = 0;
 }
 
 /**
@@ -412,8 +409,7 @@ void minigb_apu_audio_write(struct minigb_apu_ctx *ctx,
 	if(addr == 0xFF26)
 	{
 		ctx->audio_mem[addr - AUDIO_ADDR_COMPENSATION] = val & 0x80;
-		/* On APU power off, clear all registers apart from wave
-		 * RAM. */
+		/* On APU power off, clear all registers apart from wave RAM. */
 		if((val & 0x80) == 0)
 		{
 			memset(ctx->audio_mem,
@@ -440,8 +436,22 @@ void minigb_apu_audio_write(struct minigb_apu_ctx *ctx,
 	case 0xFF21: {
 		ctx->chans[i].volume_init = val >> 4;
 		ctx->chans[i].powered     = (val >> 3) != 0;
-		ctx->chans[i].env.step    = val & 0x07;
-		ctx->chans[i].env.up      = (val >> 3) & 1;
+
+		// "zombie mode" stuff, needed for Prehistorik Man and probably others
+		if (ctx->chans[i].powered && ctx->chans[i].enabled) {
+			if ((ctx->chans[i].env.step == 0 && ctx->chans[i].env.inc != 0)) {
+				if (val & 0x08) {
+					ctx->chans[i].volume++;
+				} else {
+					ctx->chans[i].volume += 2;
+				}
+			} else {
+				ctx->chans[i].volume = 16 - ctx->chans[i].volume;
+			}
+
+			ctx->chans[i].volume &= 0x0F;
+			ctx->chans[i].env.step = val & 0x07;
+		}
 	} break;
 
 	case 0xFF1C:
@@ -452,13 +462,13 @@ void minigb_apu_audio_write(struct minigb_apu_ctx *ctx,
 	case 0xFF16:
 	case 0xFF20: {
 		const uint8_t duty_lookup[] = { 0x10, 0x30, 0x3C, 0xCF };
-		ctx->chans[i].len.ctr     = 64 - (val & 0x3f);
+		ctx->chans[i].len.load = val & 0x3f;
 		ctx->chans[i].square.duty = duty_lookup[val >> 6];
 		break;
 	}
 
 	case 0xFF1B:
-		ctx->chans[i].len.ctr = 256 - val;
+		ctx->chans[i].len.load = val;
 		break;
 
 	case 0xFF13:
@@ -513,10 +523,6 @@ void minigb_apu_audio_init(struct minigb_apu_ctx *ctx)
 	/* Initialise channels and samples. */
 	memset(ctx->chans, 0, sizeof(ctx->chans));
 	ctx->chans[0].val = ctx->chans[1].val = -1;
-
-	/* Initialise frame sequencer. */
-	ctx->frame_seq_count = 0;
-	ctx->frame_seq_step  = 0;
 
 	/* Initialise IO registers. */
 	{

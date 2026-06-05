@@ -45,22 +45,26 @@ typedef int32_t audio_sample_t;
 #define AUDIO_ADDR_COMPENSATION	0xFF10
 
 struct chan_len_ctr {
-	uint8_t  enabled;   /* length stop enabled (NRx4 bit 6) */
-	uint16_t ctr;       /* remaining length ticks (counts down to 0) */
+	uint8_t load;
+	uint8_t enabled;
+	uint32_t counter;
+	uint32_t inc;
 };
 
 struct chan_vol_env {
-	uint8_t step;  /* period in 64Hz ticks (0 = stopped) */
-	uint8_t up;    /* 1 = increase, 0 = decrease */
-	uint8_t ctr;   /* period countdown */
+	uint8_t step;
+	uint8_t up;
+	uint32_t counter;
+	uint32_t inc;
 };
 
 struct chan_freq_sweep {
-	uint8_t  rate;   /* period in 128Hz ticks (0 = disabled) */
-	uint8_t  shift;
-	uint8_t  down;
-	uint8_t  ctr;    /* period countdown */
-	uint16_t freq;   /* shadow frequency */
+	uint8_t rate;
+	uint8_t shift;
+	uint8_t down;
+	uint16_t freq;
+	uint32_t counter;
+	uint32_t inc;
 };
 
 struct chan {
@@ -106,11 +110,6 @@ struct minigb_apu_ctx {
 	 * Memory holding audio registers between 0xFF10 and 0xFF3F inclusive.
 	 */
 	uint8_t audio_mem[AUDIO_MEM_SIZE];
-
-	/* Frame sequencer: 512 Hz, 8 steps.
-	 * count += 512 per sample; fires when count >= AUDIO_SAMPLE_RATE. */
-	uint32_t frame_seq_count;
-	uint8_t  frame_seq_step;  /* current step 0-7 */
 };
 
 /**
