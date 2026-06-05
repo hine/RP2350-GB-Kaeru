@@ -20,7 +20,7 @@ int save_sram_save(const char *path, const uint8_t *ram, size_t size)
 {
     if (!ram || size == 0) return 0;
 
-    f_mkdir("0:/saves");  // 既存でも FR_EXIST を返すだけで問題なし
+    f_mkdir("0:/saves");
 
     FIL fil;
     FRESULT fr = f_open(&fil, path, FA_WRITE | FA_CREATE_ALWAYS);

@@ -9,7 +9,8 @@ typedef enum {
     MENU_ACT_CLOSE,            // B/ESC でメニュー終了（設定は main.c 側で保存）
     MENU_ACT_SRAM_TO_SD,       // 現在の cart RAM を SD にバックアップ
     MENU_ACT_SD_TO_FLASH,      // SD から cart RAM をロードして Flash に保存
-    MENU_ACT_FLASH_CLEAR_EXEC, // フラッシュ全消去を実行（確認済み）
+    MENU_ACT_FLASH_CLEAR_EXEC, // フラッシュメタデータ消去を実行（確認済み）
+    MENU_ACT_FULL_ERASE_EXEC,  // Flash 物理完全消去を実行（確認済み）→リブート
 } menu_action_t;
 
 // メニューを開いてオーバーレイを描画する。

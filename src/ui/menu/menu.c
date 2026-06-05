@@ -4,12 +4,14 @@
 #include <stdio.h>
 #include <string.h>
 
-#define N_ITEMS 5
+#define N_ITEMS 6
 
-static bool    s_open               = false;
-static int     s_cursor             = 0;
-static bool    s_confirm            = false;
-static bool    s_confirm_sd_restore = false;  // true=SD復元確認、false=フラッシュクリア確認
+static bool    s_open                = false;
+static int     s_cursor              = 0;
+static bool    s_confirm             = false;
+static bool    s_confirm_sd_restore  = false;  // true=SD復元確認
+static bool    s_confirm_sd_backup   = false;  // true=SDバックアップ確認
+static bool    s_confirm_full_erase  = false;  // true=完全消去確認
 static bool    s_toast              = false;
 static char    s_toast_msg[48];
 
@@ -29,6 +31,7 @@ static void build_labels(void) {
     snprintf(s_labels[2], sizeof(s_labels[2]), "Backup to SD");
     snprintf(s_labels[3], sizeof(s_labels[3]), "Restore from SD");
     snprintf(s_labels[4], sizeof(s_labels[4]), "Clear Flash");
+    snprintf(s_labels[5], sizeof(s_labels[5]), "Full Erase Flash");
     for (int i = 0; i < N_ITEMS; i++) s_label_ptrs[i] = s_labels[i];
 }
 
@@ -54,17 +57,26 @@ uint8_t menu_get_backlight(void)     { return s_backlight;  }
 static menu_action_t handle_confirm(int key) {
     if (key == ',' || key == '[' || key == KEY_ENTER) {
         s_confirm = false;
-        if (s_confirm_sd_restore) {
+        if (s_confirm_sd_backup) {
+            s_confirm_sd_backup = false;
+            return MENU_ACT_SRAM_TO_SD;
+        } else if (s_confirm_sd_restore) {
             s_confirm_sd_restore = false;
             return MENU_ACT_SD_TO_FLASH;
+        } else if (s_confirm_full_erase) {
+            s_confirm_full_erase = false;
+            s_open = false;
+            return MENU_ACT_FULL_ERASE_EXEC;
         } else {
             s_open = false;
             return MENU_ACT_FLASH_CLEAR_EXEC;
         }
     }
     if (key == '.' || key == ']') {
-        s_confirm            = false;
-        s_confirm_sd_restore = false;
+        s_confirm             = false;
+        s_confirm_sd_restore  = false;
+        s_confirm_sd_backup   = false;
+        s_confirm_full_erase  = false;
         lcd_menu_draw(s_label_ptrs, N_ITEMS, s_cursor);
     }
     return MENU_ACT_NONE;
@@ -88,7 +100,10 @@ static menu_action_t handle_select(int idx) {
             return MENU_ACT_NONE;
         }
         case 2:
-            return MENU_ACT_SRAM_TO_SD;
+            s_confirm           = true;
+            s_confirm_sd_backup = true;
+            lcd_menu_draw_backup_confirm();
+            return MENU_ACT_NONE;
         case 3:
             s_confirm            = true;
             s_confirm_sd_restore = true;
@@ -97,6 +112,11 @@ static menu_action_t handle_select(int idx) {
         case 4:
             s_confirm = true;
             lcd_menu_draw_confirm();
+            return MENU_ACT_NONE;
+        case 5:
+            s_confirm            = true;
+            s_confirm_full_erase = true;
+            lcd_menu_draw_full_erase_confirm();
             return MENU_ACT_NONE;
     }
     return MENU_ACT_NONE;

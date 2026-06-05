@@ -72,6 +72,7 @@ target_link_libraries(picocalc_gb_kaeru
     hardware_sync
     hardware_pwm
     hardware_dma
+    hardware_watchdog
     FatFs_SPI
     LovyanGFX
 )
@@ -132,6 +133,7 @@ target_link_libraries(amoled_gb_kaeru
     hardware_flash
     hardware_sync
     hardware_spi
+    hardware_watchdog
     FatFs_SPI
 )
 
@@ -143,5 +145,5 @@ target_compile_definitions(amoled_gb_kaeru PRIVATE
 )
 
 pico_add_extra_outputs(amoled_gb_kaeru)
-pico_enable_stdio_usb(amoled_gb_kaeru 1)
+pico_enable_stdio_usb(amoled_gb_kaeru 0)
 pico_enable_stdio_uart(amoled_gb_kaeru 0)

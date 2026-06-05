@@ -285,11 +285,11 @@ void lcd_menu_draw_confirm(void) {
     lcd.setTextSize(1);
     lcd.setTextColor(TFT_WHITE, lcd.color888(60, 0, 0));
     lcd.setCursor(x + 8, y + 10);
-    lcd.print("Clear all Flash?");
+    lcd.print("Reset Flash data?");
     lcd.setCursor(x + 8, y + 22);
-    lcd.print("ROM/SRAM/Settings");
+    lcd.print("All saves & settings");
     lcd.setCursor(x + 8, y + 34);
-    lcd.print("will be erased.");
+    lcd.print("reset. Reload from SD.");
     lcd.drawFastHLine(x + 2, y + 50, w - 4, lcd.color888(120, 0, 0));
     lcd.setCursor(x + 8, y + 58);
     lcd.print("A/Ent:Execute");
@@ -316,6 +316,50 @@ void lcd_menu_draw_sd_confirm(void) {
     lcd.setCursor(x + 8, y + 58);
     lcd.print("A/Ent:Execute");
     lcd.setCursor(x + 8, y + 70);
+    lcd.print("B/ESC:Cancel");
+    lcd.endWrite();
+}
+
+void lcd_menu_draw_backup_confirm(void) {
+    int x = 55, y = 105, w = 210, h = 110;
+    lcd.startWrite();
+    lcd.fillRoundRect(x, y, w, h, 4, lcd.color888(40, 30, 0));
+    lcd.drawRoundRect(x, y, w, h, 4, lcd.color888(255, 160, 0));
+    lcd.setFont(&lgfx::fonts::Font0);
+    lcd.setTextSize(1);
+    lcd.setTextColor(TFT_WHITE, lcd.color888(40, 30, 0));
+    lcd.setCursor(x + 8, y + 10);
+    lcd.print("Backup to SD?");
+    lcd.setCursor(x + 8, y + 22);
+    lcd.print("Current save will be");
+    lcd.setCursor(x + 8, y + 34);
+    lcd.print("written to SD card.");
+    lcd.drawFastHLine(x + 2, y + 50, w - 4, lcd.color888(120, 80, 0));
+    lcd.setCursor(x + 8, y + 58);
+    lcd.print("A/Ent:Execute");
+    lcd.setCursor(x + 8, y + 70);
+    lcd.print("B/ESC:Cancel");
+    lcd.endWrite();
+}
+
+void lcd_menu_draw_full_erase_confirm(void) {
+    int x = 55, y = 100, w = 210, h = 120;
+    lcd.startWrite();
+    lcd.fillRoundRect(x, y, w, h, 4, lcd.color888(60, 0, 0));
+    lcd.drawRoundRect(x, y, w, h, 4, TFT_RED);
+    lcd.setFont(&lgfx::fonts::Font0);
+    lcd.setTextSize(1);
+    lcd.setTextColor(TFT_WHITE, lcd.color888(60, 0, 0));
+    lcd.setCursor(x + 8, y + 10);
+    lcd.print("FULL ERASE FLASH?");
+    lcd.setCursor(x + 8, y + 22);
+    lcd.print("ALL data physically");
+    lcd.setCursor(x + 8, y + 34);
+    lcd.print("erased. Will reboot.");
+    lcd.drawFastHLine(x + 2, y + 50, w - 4, lcd.color888(120, 0, 0));
+    lcd.setCursor(x + 8, y + 58);
+    lcd.print("A/Ent:Erase & Reboot");
+    lcd.setCursor(x + 8, y + 82);
     lcd.print("B/ESC:Cancel");
     lcd.endWrite();
 }

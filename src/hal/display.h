@@ -66,6 +66,10 @@ void lcd_menu_item_redraw(const char *label, int idx, bool selected);
 void lcd_menu_draw_confirm(void);
 // SD から Flash へ復元する確認ダイアログをメニューの上に描画する
 void lcd_menu_draw_sd_confirm(void);
+// SD へバックアップする確認ダイアログをメニューの上に描画する
+void lcd_menu_draw_backup_confirm(void);
+// Flash 完全消去確認ダイアログをメニューの上に描画する
+void lcd_menu_draw_full_erase_confirm(void);
 // 操作結果トーストをメニューの上に描画する（任意キーで閉じる旨を表示）
 void lcd_menu_draw_toast(const char *msg);
 

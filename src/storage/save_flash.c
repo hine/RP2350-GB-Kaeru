@@ -60,14 +60,15 @@ void save_flash_state_save(int slot) {
     gb_core_state_save(s_state_buf);
     uint32_t offset = SAVE_FLASH_STATE_OFFSET + (uint32_t)idx * SAVE_FLASH_STATE_SLOT_SZ;
     flash_write(offset, s_state_buf, state_size);
+    flash_meta_set_state(slot);
 }
 
 int save_flash_state_load(int slot) {
     int idx = slot_to_idx(slot);
     if (idx < 0) return -1;
+    if (!flash_meta_state_valid(slot)) return 1;  // フラグなし = 未保存
     const uint8_t *ptr = (const uint8_t *)(XIP_BASE + SAVE_FLASH_STATE_OFFSET
                          + (uint32_t)idx * SAVE_FLASH_STATE_SLOT_SZ);
-    if (ptr[0] == 0xFF) return 1;  // 未保存
     gb_core_state_load(ptr);
     return 0;
 }

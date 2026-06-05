@@ -236,14 +236,22 @@ int main()
     }
 
     if (sd_mounted) {
+        if (!rom_in_flash) lcd_print_string("Loading ROM...\n");
         int rc = rom_flash_ensure(ROM_PATH);
         if (rc == 0) {
             // ROM 確認・書き込み成功 → メタデータに記録
             flash_meta_set_rom(rom_flash_ptr() + 0x0134);
         } else if (!rom_in_flash) {
-            char buf[40];
-            snprintf(buf, sizeof(buf), "ROM FAILED: %d\n", rc);
-            lcd_print_string(buf);
+            if (rc == -1) {
+                lcd_print_string("ROM not found!\n");
+                lcd_print_string("Place kaeru.gb at:\n");
+                lcd_print_string("0:/roms/kaeru.gb\n");
+                lcd_print_string("then reboot.\n");
+            } else {
+                char buf[24];
+                snprintf(buf, sizeof(buf), "ROM error: %d\n", rc);
+                lcd_print_string(buf);
+            }
             while (true) tight_loop_contents();
         }
         // rc != 0 かつ rom_in_flash の場合: SD の ROM 確認失敗だが Flash の ROM で続行
@@ -342,8 +350,13 @@ int main()
                     add_repeating_timer_us(-16743, frame_timer_cb, NULL, &frame_timer);
 
                 } else if (act == MENU_ACT_SRAM_TO_SD) {
-                    bool ok = false;
-                    if (sd_mounted && gb_core_save_size() > 0) {
+                    if (!sd_mounted) sd_mounted = (sd_mount() == FR_OK);
+                    const char *msg_backup;
+                    if (!sd_mounted) {
+                        msg_backup = "No SD card";
+                    } else if (gb_core_save_size() == 0) {
+                        msg_backup = "No save data";
+                    } else {
                         mutex_enter_blocking(&g_lcd_mutex);
                         lcd_status_storage_icon(STORAGE_ICON_SD);
                         mutex_exit(&g_lcd_mutex);
@@ -352,15 +365,21 @@ int main()
                         mutex_enter_blocking(&g_lcd_mutex);
                         lcd_status_storage_icon(STORAGE_ICON_OFF);
                         mutex_exit(&g_lcd_mutex);
-                        ok = true;
+                        msg_backup = "Saved to SD!";
                     }
                     mutex_enter_blocking(&g_lcd_mutex);
-                    menu_show_toast(ok ? "Saved to SD!" : "No save data");
+                    menu_show_toast(msg_backup);
                     mutex_exit(&g_lcd_mutex);
 
                 } else if (act == MENU_ACT_SD_TO_FLASH) {
-                    bool ok = false;
-                    if (sd_mounted && gb_core_save_size() > 0) {
+                    if (!sd_mounted) sd_mounted = (sd_mount() == FR_OK);
+                    const char *msg_restore;
+                    if (!sd_mounted) {
+                        msg_restore = "No SD card";
+                    } else if (gb_core_save_size() == 0) {
+                        msg_restore = "No save data";
+                    } else {
+                        bool ok = false;
                         mutex_enter_blocking(&g_lcd_mutex);
                         lcd_status_storage_icon(STORAGE_ICON_READ);
                         mutex_exit(&g_lcd_mutex);
@@ -378,9 +397,10 @@ int main()
                         mutex_enter_blocking(&g_lcd_mutex);
                         lcd_status_storage_icon(STORAGE_ICON_OFF);
                         mutex_exit(&g_lcd_mutex);
+                        msg_restore = ok ? "Restored!" : "Load failed";
                     }
                     mutex_enter_blocking(&g_lcd_mutex);
-                    menu_show_toast(ok ? "Restored!" : "Load failed");
+                    menu_show_toast(msg_restore);
                     mutex_exit(&g_lcd_mutex);
 
                 } else if (act == MENU_ACT_FLASH_CLEAR_EXEC) {
@@ -393,6 +413,23 @@ int main()
                     mutex_enter_blocking(&g_lcd_mutex);
                     lcd_status_storage_icon(STORAGE_ICON_OFF);
                     mutex_exit(&g_lcd_mutex);
+
+                } else if (act == MENU_ACT_FULL_ERASE_EXEC) {
+                    mutex_enter_blocking(&g_lcd_mutex);
+                    menu_show_toast("Erasing Flash...");
+                    lcd_status_storage_icon(STORAGE_ICON_FLASH);
+                    mutex_exit(&g_lcd_mutex);
+                    multicore_lockout_start_blocking();
+                    flash_full_erase();
+                    multicore_lockout_end_blocking();
+                    mutex_enter_blocking(&g_lcd_mutex);
+                    lcd_status_storage_icon(STORAGE_ICON_OFF);
+                    lcd_clear();
+                    lcd_print_string("Erase complete!\n\n");
+                    lcd_print_string("Please reset device\n");
+                    lcd_print_string("to reload ROM from SD.\n");
+                    mutex_exit(&g_lcd_mutex);
+                    while (true) tight_loop_contents();
                 }
             }
             tight_loop_contents();

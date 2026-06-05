@@ -350,9 +350,9 @@ static void fb_draw_text_center(int x, int y, int w, const char *str,
 }
 
 // ── メニュー定数 ──────────────────────────────────────────────────────────────
-// 7 項目: Palette / Volume / Backup to SD / Restore from SD /
-//         Clear Flash / Reset / Close
-#define MENU_N_ITEMS    7
+// 8 項目: Palette / Volume / Backup to SD / Restore from SD /
+//         Clear Flash / Full Erase Flash / Reset / Close
+#define MENU_N_ITEMS    8
 #define MENU_TITLE_H    28                               // タイトルエリア高さ
 #define MENU_ITEM_H     ((GB_H2 - MENU_TITLE_H) / MENU_N_ITEMS)  // 37
 #define MENU_TITLE_Y    8
@@ -412,7 +412,7 @@ static void draw_status_bar(void) {
 static void draw_menu_overlay(void) {
     static const char *labels[MENU_N_ITEMS] = {
         "Palette", "Volume", "Backup to SD",
-        "Restore from SD", "Clear Flash", "Reset", "Close"
+        "Restore from SD", "Clear Flash", "Full Erase Flash", "Reset", "Close"
     };
 
     fb_fill(MENU_PANEL_X, 0, MENU_PANEL_X + MENU_PANEL_W, GB_H2, MENU_BG);
@@ -456,8 +456,55 @@ static void draw_menu_overlay(void) {
 
 // ── 確認ダイアログ描画（センター配置 No/Yes ボタン） ─────────────────────────
 static void draw_menu_confirm(void) {
-    bool is_clear = (s_confirm_item == 4);
+    bool is_clear = (s_confirm_item == 4 || s_confirm_item == 5);
     uint16_t yes_bg = is_clear ? CONF_RED_BG : CONF_ORANGE_BG;
+
+    char slot_buf[28];
+    const char *title, *msg1, *msg2;
+    switch (s_confirm_item) {
+        case 2:
+            title = "BACKUP TO SD?";
+            msg1  = "Current save will be";
+            msg2  = "written to SD card.";
+            break;
+        case 3:
+            title = "RESTORE FROM SD?";
+            msg1  = "Flash save will be";
+            msg2  = "overwritten.";
+            break;
+        case 4:
+            title = "CLEAR FLASH?";
+            msg1  = "All saves & settings";
+            msg2  = "reset. Reload from SD.";
+            break;
+        case 5:
+            title = "FULL ERASE?";
+            msg1  = "ALL data physically";
+            msg2  = "erased. Will reboot.";
+            break;
+        case 6:
+            title = "RESET?";
+            msg1  = "Game will be reset";
+            msg2  = "to last save.";
+            break;
+        case 10:
+            snprintf(slot_buf, sizeof(slot_buf), "Write to Slot %d.", g_state_slot);
+            title = "SAVE STATE?";
+            msg1  = slot_buf;
+            msg2  = NULL;
+            break;
+        case 11:
+            snprintf(slot_buf, sizeof(slot_buf), "Load from Slot %d.", g_state_slot);
+            title = "LOAD STATE?";
+            msg1  = slot_buf;
+            msg2  = NULL;
+            break;
+        default:
+            title = "CONFIRM?";
+            msg1  = "";
+            msg2  = NULL;
+            break;
+    }
 
     // 背景を暗くする
     fb_fill(MENU_PANEL_X, 0, MENU_PANEL_X + MENU_PANEL_W, GB_H2, MENU_BG);
@@ -473,14 +520,15 @@ static void draw_menu_confirm(void) {
     fb_fill(bx + bw - 1, by,          bx + bw,     by + bh,     MENU_BORDER);
 
     // タイトル（scale=2）
-    const char *title = is_clear ? "CLEAR FLASH?" : "RESTORE FROM SD?";
-    fb_draw_text_center(bx, by + 12, bw, title, COL_WHITE, MENU_ITEM_BG, 2);
+    fb_draw_text_center(bx, by + 10, bw, title, COL_WHITE, MENU_ITEM_BG, 2);
 
-    // メッセージ（scale=1）
-    const char *msg1 = is_clear ? "ROM / SRAM / Settings" : "Flash save will be";
-    const char *msg2 = is_clear ? "will all be erased!"   : "overwritten.";
-    fb_draw_text_center(bx, by + 40, bw, msg1, AMOLED_COLOR(0xAD55), MENU_ITEM_BG, 1);
-    fb_draw_text_center(bx, by + 52, bw, msg2, AMOLED_COLOR(0xAD55), MENU_ITEM_BG, 1);
+    // メッセージ（scale=2）: 2行なら by+34/by+54、1行なら by+44 に中央配置
+    if (msg2) {
+        fb_draw_text_center(bx, by + 34, bw, msg1, AMOLED_COLOR(0xAD55), MENU_ITEM_BG, 2);
+        fb_draw_text_center(bx, by + 54, bw, msg2, AMOLED_COLOR(0xAD55), MENU_ITEM_BG, 2);
+    } else {
+        fb_draw_text_center(bx, by + 44, bw, msg1, AMOLED_COLOR(0xAD55), MENU_ITEM_BG, 2);
+    }
 
     // ボタン区切り線
     fb_fill(bx + 4, CONF_BTN_Y - 6, bx + bw - 4, CONF_BTN_Y - 5, MENU_DIVIDER);
@@ -541,7 +589,6 @@ static void do_save_state(void) {
     g_storage_icon_color = 0;
     strncpy((char *)g_status_msg, "Saved", sizeof(g_status_msg));
     g_status_ttl = 120;
-    printf("State saved: slot %d\n", g_state_slot);
 }
 
 static void do_load_state(void) {
@@ -550,10 +597,8 @@ static void do_load_state(void) {
     g_storage_icon_color = 0;
     if (r == 0) {
         strncpy((char *)g_status_msg, "Loaded", sizeof(g_status_msg));
-        printf("State loaded: slot %d\n", g_state_slot);
     } else {
         strncpy((char *)g_status_msg, "No data", sizeof(g_status_msg));
-        printf("State load: slot %d empty\n", g_state_slot);
     }
     g_status_ttl = 120;
 }
@@ -570,7 +615,6 @@ static void do_menu_open(void) {
     s_confirm_item = -1;
     strncpy((char *)g_status_msg, "PAUSED", sizeof(g_status_msg));
     g_status_ttl   = 9999;
-    printf("Menu: open\n");
 }
 
 static void do_menu_close(void) {
@@ -582,36 +626,78 @@ static void do_menu_close(void) {
     multicore_lockout_start_blocking();
     flash_settings_save((uint8_t)g_palette_idx, (uint8_t)g_vol_step, 80);
     multicore_lockout_end_blocking();
-    printf("Menu: close, settings saved (pal=%d vol=%d)\n", g_palette_idx, g_vol_step);
+}
+
+// メニューを開かずに確認ダイアログだけ表示する（SAVE/LOAD ステータスバーから呼ぶ）
+static void do_confirm_open(int item) {
+    g_menu_active        = true;
+    g_dpad_active        = false;
+    s_btn_joy            = 0xFF;
+    s_menu_state         = MENU_STATE_CONFIRM;
+    s_menu_item          = -1;
+    s_confirm_item       = item;
+    s_confirm_needs_lift = true;
+}
+
+// 設定保存なし・ステータスメッセージ維持の軽量クローズ（do_confirm_open と対で使う）
+static void do_confirm_close(void) {
+    g_menu_active  = false;
+    s_menu_state   = MENU_STATE_ITEMS;
+    s_menu_item    = -1;
+    s_confirm_item = -1;
 }
 
 // ── 確認アクション実行 ───────────────────────────────────────────────────────
 static void execute_confirm_action(int item) {
     switch (item) {
-        case 3: {  // Restore from SD
-            bool ok = false;
-            if (gb_core_save_size() > 0) {
-                if (!g_sd_mounted) g_sd_mounted = (sd_mount() == FR_OK);
-                if (g_sd_mounted) {
-                    g_storage_icon_color = COL_ICON_READ;
-                    int r = save_sram_load(SRAM_SD_PATH,
-                                           gb_core_cart_ram_ptr(), gb_core_save_size());
-                    if (r == 0) {
-                        g_storage_icon_color = COL_ICON_FLASH;
-                        multicore_lockout_start_blocking();
-                        save_flash_sram_save(gb_core_cart_ram_ptr(), gb_core_save_size());
-                        multicore_lockout_end_blocking();
-                        ok = true;
-                    }
-                    g_storage_icon_color = 0;
-                }
+        case 2: {  // Backup to SD
+            if (!g_sd_mounted) g_sd_mounted = (sd_mount() == FR_OK);
+            const char *msg2;
+            if (!g_sd_mounted) {
+                msg2 = "No SD card";
+            } else if (gb_core_save_size() == 0) {
+                msg2 = "No save data";
+            } else {
+                g_storage_icon_color = COL_ICON_SD;
+                bool ok = (save_sram_save(SRAM_SD_PATH,
+                                          gb_core_cart_ram_ptr(), gb_core_save_size()) == 0);
+                g_storage_icon_color = 0;
+                msg2 = ok ? "Saved to SD!" : "Save failed";
             }
-            strncpy(s_toast_msg, ok ? "Restored!" : "Load failed", sizeof(s_toast_msg));
+            strncpy(s_toast_msg, msg2, sizeof(s_toast_msg));
             s_toast_ttl    = 90;
             s_menu_item    = -1;
             s_confirm_item = -1;
             s_menu_state   = MENU_STATE_TOAST;
-            printf("Restore: %s\n", s_toast_msg);
+            break;
+        }
+        case 3: {  // Restore from SD
+            if (!g_sd_mounted) g_sd_mounted = (sd_mount() == FR_OK);
+            const char *msg3;
+            if (!g_sd_mounted) {
+                msg3 = "No SD card";
+            } else if (gb_core_save_size() == 0) {
+                msg3 = "No save data";
+            } else {
+                g_storage_icon_color = COL_ICON_READ;
+                int r = save_sram_load(SRAM_SD_PATH,
+                                       gb_core_cart_ram_ptr(), gb_core_save_size());
+                bool ok = false;
+                if (r == 0) {
+                    g_storage_icon_color = COL_ICON_FLASH;
+                    multicore_lockout_start_blocking();
+                    save_flash_sram_save(gb_core_cart_ram_ptr(), gb_core_save_size());
+                    multicore_lockout_end_blocking();
+                    ok = true;
+                }
+                g_storage_icon_color = 0;
+                msg3 = ok ? "Restored!" : "Load failed";
+            }
+            strncpy(s_toast_msg, msg3, sizeof(s_toast_msg));
+            s_toast_ttl    = 90;
+            s_menu_item    = -1;
+            s_confirm_item = -1;
+            s_menu_state   = MENU_STATE_TOAST;
             break;
         }
         case 4: {  // Clear Flash
@@ -625,7 +711,57 @@ static void execute_confirm_action(int item) {
             s_menu_item    = -1;
             s_confirm_item = -1;
             s_menu_state   = MENU_STATE_TOAST;
-            printf("Flash cleared\n");
+            break;
+        }
+        case 5: {  // Full Erase Flash
+            strncpy(s_toast_msg, "Erasing Flash...", sizeof(s_toast_msg));
+            s_menu_state = MENU_STATE_TOAST;
+            __dmb();
+            // 「Erasing Flash...」を 1 フレーム描画してから Core 1 をロックアウト
+            while (g_lcd_busy) tight_loop_contents();
+            g_lcd_idx = g_gb_write;
+            __dmb();
+            g_lcd_busy = true;
+            while (g_lcd_busy) tight_loop_contents();
+            multicore_lockout_start_blocking();
+            flash_full_erase();
+            // Core 1 はロックアウトしたまま Core 0 から直接表示する。
+            // ウォッチドッグリセットでは SPI/SD ドライバの内部状態が
+            // 引き継がれ再マウントに失敗するため、手動リセットを求める。
+            fb_fill(0, 0, AMOLED_WIDTH, UI_Y, 0x0000);
+            fb_draw_text_center(0, GB_H2 / 2 - 19, AMOLED_WIDTH,
+                                "Erase complete!",
+                                COL_WHITE, 0x0000, 2);
+            fb_draw_text_center(0, GB_H2 / 2 + 5, AMOLED_WIDTH,
+                                "Please reset device",
+                                AMOLED_COLOR(0xAD55), 0x0000, 2);
+            amoled_1in8_display_window(0, 0, AMOLED_WIDTH, UI_Y,
+                                       (const uint16_t *)s_fb);
+            multicore_lockout_end_blocking();
+            while (true) tight_loop_contents();
+            break;
+        }
+        case 6: {  // Reset
+            g_sram_dirty_countdown = 0;
+            gb_core_reset();
+            gb_core_set_fb(s_gb[g_gb_write]);
+            gb_core_set_joypad(0xFF);
+            if (gb_core_save_size() > 0)
+                save_flash_sram_load(gb_core_cart_ram_ptr(), gb_core_save_size());
+            s_confirm_item = -1;
+            do_menu_close();
+            strncpy((char *)g_status_msg, "Reset", sizeof(g_status_msg));
+            g_status_ttl = 90;
+            break;
+        }
+        case 10: {  // Save state (ステータスバーから)
+            do_save_state();
+            do_confirm_close();
+            break;
+        }
+        case 11: {  // Load state (ステータスバーから)
+            do_load_state();
+            do_confirm_close();
             break;
         }
     }
@@ -642,42 +778,17 @@ static void handle_menu_item_tap(int item) {
             g_vol_step = (g_vol_step + 1) % 6;
             apply_volume();
             break;
-        case 2: {  // Backup to SD
-            bool ok = false;
-            if (gb_core_save_size() > 0) {
-                if (!g_sd_mounted) g_sd_mounted = (sd_mount() == FR_OK);
-                if (g_sd_mounted) {
-                    g_storage_icon_color = COL_ICON_SD;
-                    ok = (save_sram_save(SRAM_SD_PATH,
-                                        gb_core_cart_ram_ptr(), gb_core_save_size()) == 0);
-                    g_storage_icon_color = 0;
-                }
-            }
-            strncpy(s_toast_msg, ok ? "Saved to SD!" : "No save data", sizeof(s_toast_msg));
-            s_toast_ttl  = 90;
-            s_menu_item  = -1;
-            s_menu_state = MENU_STATE_TOAST;
-            break;
-        }
+        case 2:  // Backup to SD: 確認ダイアログへ
         case 3:  // Restore from SD: 確認ダイアログへ
         case 4:  // Clear Flash: 確認ダイアログへ
+        case 5:  // Full Erase Flash: 確認ダイアログへ
+        case 6:  // Reset: 確認ダイアログへ
             s_confirm_item       = item;
             s_menu_item          = -1;
             s_confirm_needs_lift = true;  // 指を離してから受付
             s_menu_state         = MENU_STATE_CONFIRM;
             break;
-        case 5:  // Reset
-            g_sram_dirty_countdown = 0;
-            gb_core_reset();
-            gb_core_set_fb(s_gb[g_gb_write]);
-            gb_core_set_joypad(0xFF);
-            if (gb_core_save_size() > 0)
-                save_flash_sram_load(gb_core_cart_ram_ptr(), gb_core_save_size());
-            do_menu_close();
-            strncpy((char *)g_status_msg, "Reset", sizeof(g_status_msg));
-            g_status_ttl = 90;
-            break;
-        case 6:  // Close
+        case 7:  // Close
             s_menu_item = -1;
             do_menu_close();
             break;
@@ -690,13 +801,12 @@ static void handle_sys_btn(int row) {
             if (g_menu_active) do_menu_close();
             else               do_menu_open();
             break;
-        case 1: do_save_state(); break;
-        case 2: do_load_state(); break;
+        case 1: do_confirm_open(10); break;  // Save state
+        case 2: do_confirm_open(11); break;  // Load state
         case 3:
             g_state_slot = (g_state_slot + 1) % SAVE_FLASH_STATE_N_SLOTS;
             snprintf((char *)g_status_msg, sizeof(g_status_msg), "Slot: %d", g_state_slot);
             g_status_ttl = 90;
-            printf("Slot: %d\n", g_state_slot);
             break;
     }
 }
@@ -813,10 +923,15 @@ static void process_menu_touch(const ft3168_data_t *td) {
                 s_menu_item = 1;
                 execute_confirm_action(s_confirm_item);
             } else if (in_no) {
-                s_menu_item          = 0;
-                s_confirm_needs_lift = true;  // Items 復帰後に誤発火しない
-                s_menu_state         = MENU_STATE_ITEMS;
-                s_confirm_item       = -1;
+                if (s_confirm_item >= 10) {
+                    // ステータスバーから直接開いた confirm: ゲームに戻る
+                    do_confirm_close();
+                } else {
+                    s_menu_item          = 0;
+                    s_confirm_needs_lift = true;
+                    s_menu_state         = MENU_STATE_ITEMS;
+                    s_confirm_item       = -1;
+                }
             }
             // ボタン外タップは無視（明示的な操作を要求）
             break;
@@ -878,6 +993,17 @@ static bool frame_timer_cb(repeating_timer_t *rt) {
     return true;
 }
 
+// ── 起動メッセージ（Core 1 未起動時のみ呼ぶこと） ────────────────────────────
+// l1=タイトル（白）、l2/l3=サブ（グレー）。NULL で省略可。
+static void boot_msg(const char *l1, const char *l2, const char *l3) {
+    fb_fill(0, 0, AMOLED_WIDTH, UI_Y, 0x0000);
+    int y = l3 ? (GB_H2 / 2 - 31) : l2 ? (GB_H2 / 2 - 19) : (GB_H2 / 2 - 7);
+    if (l1) fb_draw_text_center(0, y,      AMOLED_WIDTH, l1, COL_WHITE,            0x0000, 2);
+    if (l2) fb_draw_text_center(0, y + 24, AMOLED_WIDTH, l2, AMOLED_COLOR(0xAD55), 0x0000, 2);
+    if (l3) fb_draw_text_center(0, y + 48, AMOLED_WIDTH, l3, AMOLED_COLOR(0xAD55), 0x0000, 2);
+    amoled_1in8_display_window(0, 0, AMOLED_WIDTH, UI_Y, (const uint16_t *)s_fb);
+}
+
 // ── Core 1: GB フレームレンダリング + AMOLED 転送 ────────────────────────────
 static void core1_main(void) {
     multicore_lockout_victim_init();
@@ -917,10 +1043,6 @@ int main(void) {
         CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLKSRC_PLL_SYS,
         200000000, 200000000);
 
-    stdio_init_all();
-    sleep_ms(200);
-    printf("\n=== AMOLED GB Kaeru ===\n");
-
     // I2C（FT3168 / ES8311 共有バス）
     i2c_init(BOARD_I2C, BOARD_I2C_HZ);
     gpio_set_function(BOARD_I2C_SDA, GPIO_FUNC_I2C);
@@ -934,7 +1056,6 @@ int main(void) {
         es8311_init(BOARD_I2C, AUDIO_I2S_SAMPLE_RATE, mclk_hz);
         es8311_set_volume(BOARD_I2C, 60);
         es8311_mute(BOARD_I2C, false);
-        printf("ES8311: ID=0x%04X\n", es8311_read_id(BOARD_I2C));
     }
 
     // AMOLED ディスプレイ初期化
@@ -951,60 +1072,69 @@ int main(void) {
     bool rom_in_flash = flash_meta_rom_valid();
     g_sd_mounted = false;
 
-    printf("ROM: %s\n", rom_in_flash ? "Flash OK" : "SD required");
 
     if (!rom_in_flash) {
-        sleep_ms(500);
+        boot_msg("Insert SD card", "with kaeru.gb", "at 0:/roms/");
+        sleep_ms(1000);
         int fr = FR_NOT_READY;
         while (fr != FR_OK) {
             sd_unmount();
-            sleep_ms(500);
+            sleep_ms(1000);
             fr = sd_mount();
-            printf("SD: %s\n", fr == FR_OK ? "OK" : "retrying...");
         }
+        sleep_ms(500);  // マウント後の安定待ち
         g_sd_mounted = true;
     } else {
         sleep_ms(300);
         if (sd_mount() == FR_OK) {
             g_sd_mounted = true;
-            printf("SD: OK\n");
         } else {
-            printf("SD: (skip)\n");
         }
     }
 
     if (g_sd_mounted) {
+        if (!rom_in_flash) {
+            boot_msg("Loading ROM from SD...", "Please wait (~10 sec)", NULL);
+        }
         int rc = rom_flash_ensure(ROM_PATH);
+        // ウォッチドッグリセット後はマウント直後にファイルアクセスが
+        // 失敗することがある。リマウントして1回リトライする。
+        if (rc != 0 && !rom_in_flash) {
+            sd_unmount();
+            sleep_ms(2000);
+            if (sd_mount() == FR_OK) {
+                sleep_ms(500);
+                rc = rom_flash_ensure(ROM_PATH);
+            }
+        }
         if (rc == 0) {
             flash_meta_set_rom(rom_flash_ptr() + 0x0134);
             rom_in_flash = true;
         } else if (!rom_in_flash) {
-            printf("ROM load from SD failed: %d\n", rc);
+            boot_msg("ROM not found on SD!", "Place kaeru.gb at", "0:/roms/  then reboot");
+            while (true) tight_loop_contents();
         }
     }
 
     if (!rom_in_flash) {
         const uint8_t *rom = rom_flash_ptr();
         if (rom[0x104] != 0xFF) {
-            printf("ROM: raw data found, registering...\n");
             flash_meta_set_rom(rom + 0x0134);
             rom_in_flash = true;
         }
     }
 
     if (!rom_in_flash) {
-        printf("ERROR: No ROM found.\n");
+        boot_msg("No ROM found!", "Place kaeru.gb at", "0:/roms/  then reboot");
         while (true) tight_loop_contents();
     }
-    printf("ROM: ready\n");
 
     // GB コア初期化
     int rc = gb_core_init();
     if (rc != 0) {
-        printf("GB init failed: %d\n", rc);
+        boot_msg("GB init failed!", NULL, NULL);
         while (true) tight_loop_contents();
     }
-    printf("GB: OK\n");
 
     gb_core_set_fb(s_gb[0]);
     g_gb_write = 0;
@@ -1017,19 +1147,16 @@ int main(void) {
         g_palette_idx = (pal < N_PALETTES) ? pal : 0;
         g_vol_step    = (vol < 6)          ? vol : 3;
         s_pal = s_palettes[g_palette_idx];
-        printf("Settings: pal=%d vol=%d\n", g_palette_idx, g_vol_step);
     }
 
     // SRAM ロード
     if (gb_core_save_size() > 0) {
         int sr = save_flash_sram_load(gb_core_cart_ram_ptr(), gb_core_save_size());
-        printf("SRAM: %s\n", sr == 0 ? "loaded" : "no save");
     }
 
     // I2S DMA 音声ドライバ起動
     audio_i2s_set_fill_cb(audio_fill);
     audio_i2s_init();
-    printf("Audio: OK\n");
     apply_volume();
 
     // POWER ボタン（GPIO18 = SYS_OUT_PIN）: BSS138 反転回路
@@ -1054,7 +1181,6 @@ int main(void) {
     // GB フレームタイマー（59.727fps = 16743μs）
     add_repeating_timer_us(-16743, frame_timer_cb, NULL, &g_frame_timer);
 
-    printf("Running.\n");
 
     static ft3168_data_t touch = {0};
 
@@ -1124,7 +1250,6 @@ int main(void) {
             save_flash_sram_save(gb_core_cart_ram_ptr(), gb_core_save_size());
             multicore_lockout_end_blocking();
             g_storage_icon_color = 0;
-            printf("SRAM auto-saved\n");
         }
 
         // ステータスメッセージカウントダウン

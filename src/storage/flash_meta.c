@@ -1,11 +1,14 @@
 #include "flash_meta.h"
+#include "rom_flash.h"
+#include "save_flash.h"
 #include "hardware/flash.h"
 #include "hardware/sync.h"
 #include <string.h>
 
-#define META_MAGIC_ROM   0x524F4D4Bu  // 'ROMK'
-#define META_MAGIC_SRAM  0x53524D4Bu  // 'SRMK'
-#define META_MAGIC_SET   0x53455454u  // 'SETT'
+#define META_MAGIC_ROM    0x524F4D4Bu  // 'ROMK'
+#define META_MAGIC_SRAM   0x53524D4Bu  // 'SRMK'
+#define META_MAGIC_SET    0x53455454u  // 'SETT'
+#define META_MAGIC_STATES 0x53544154u  // 'STAT'
 #define ROM_TITLE_LEN    11
 
 typedef struct {
@@ -25,7 +28,14 @@ typedef struct {
     uint8_t  _pad;
 } settings_t;  // 8 bytes
 
-#define SETTINGS_OFFSET  sizeof(meta_t)  // meta_t 直後
+typedef struct {
+    uint32_t magic;        // META_MAGIC_STATES if any slot was ever saved
+    uint16_t valid_mask;   // bit i = 1 if slot i has valid data
+    uint8_t  _pad[2];
+} states_meta_t;  // 8 bytes
+
+#define SETTINGS_OFFSET     sizeof(meta_t)                         // 32
+#define STATES_META_OFFSET  (SETTINGS_OFFSET + sizeof(settings_t)) // 40
 
 static const meta_t *meta_xip(void) {
     return (const meta_t *)(XIP_BASE + FLASH_META_OFFSET);
@@ -120,5 +130,49 @@ void flash_settings_save(uint8_t palette_idx, uint8_t audio_en, uint8_t backligh
 void flash_meta_clear_all(void) {
     uint32_t ints = save_and_disable_interrupts();
     flash_range_erase(FLASH_META_OFFSET, FLASH_SECTOR_SIZE);
+    restore_interrupts(ints);
+}
+
+// ── セーブステートメタデータ ──────────────────────────────────────────────────
+
+static const states_meta_t *states_xip(void) {
+    return (const states_meta_t *)(XIP_BASE + FLASH_META_OFFSET + STATES_META_OFFSET);
+}
+
+bool flash_meta_state_valid(int slot) {
+    if (slot < 0 || slot >= 10) return false;
+    const states_meta_t *s = states_xip();
+    if (s->magic != META_MAGIC_STATES) return false;
+    return (s->valid_mask >> slot) & 1u;
+}
+
+void flash_meta_set_state(int slot) {
+    if (slot < 0 || slot >= 10) return;
+    states_meta_t s;
+    const states_meta_t *cur = states_xip();
+    if (cur->magic == META_MAGIC_STATES) {
+        s = *cur;
+    } else {
+        s.magic      = META_MAGIC_STATES;
+        s.valid_mask = 0;
+        s._pad[0]    = 0;
+        s._pad[1]    = 0;
+    }
+    s.valid_mask |= (uint16_t)(1u << slot);
+    sector_rw(STATES_META_OFFSET, &s, sizeof(states_meta_t));
+}
+
+// ── 完全消去 ──────────────────────────────────────────────────────────────────
+
+void flash_full_erase(void) {
+    uint32_t ints = save_and_disable_interrupts();
+    flash_range_erase(ROM_FLASH_OFFSET,
+                      ROM_FLASH_MAX_SIZE);
+    flash_range_erase(SAVE_FLASH_SRAM_OFFSET,
+                      SAVE_FLASH_SRAM_SIZE);
+    flash_range_erase(SAVE_FLASH_STATE_OFFSET,
+                      SAVE_FLASH_STATE_N_SLOTS * SAVE_FLASH_STATE_SLOT_SZ);
+    flash_range_erase(FLASH_META_OFFSET,
+                      FLASH_SECTOR_SIZE);
     restore_interrupts(ints);
 }

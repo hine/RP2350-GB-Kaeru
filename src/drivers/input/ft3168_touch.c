@@ -1,7 +1,6 @@
 #include "drivers/input/ft3168_touch.h"
 #include "pico/stdlib.h"
 #include "pico/time.h"
-#include <stdio.h>
 
 /* 3 ms: 13 bytes at 400 kHz takes ~0.4 ms; 3 ms gives 7× safety margin.
  * A timeout here means the I2C bus is stuck; return gracefully rather than
@@ -57,11 +56,7 @@ void ft3168_init(i2c_inst_t *i2c, uint rst_pin, ft3168_mode_t mode) {
         write_byte(i2c, REG_GESTURE_MODE, 0x01);
     sleep_ms(20);
 
-    uint8_t id = read_byte(i2c, REG_DEVICE_ID);
-    if (id != FT3168_DEVICE_ID)
-        printf("FT3168: unexpected ID 0x%02X (expected 0x%02X)\n", id, FT3168_DEVICE_ID);
-    else
-        printf("FT3168: OK (ID=0x%02X)\n", id);
+    (void)read_byte(i2c, REG_DEVICE_ID);
 }
 
 bool ft3168_read(i2c_inst_t *i2c, ft3168_data_t *out) {
