@@ -395,8 +395,9 @@ MCLK 分周器は `clock_get_hz(clk_sys)` 実行時参照で自動補正され�
 ### POWER ボタンを A ボタンとして使う根拠
 
 - FT3168 タッチが **1点のみ**対応のため、方向キー押しながら A を押すことがタッチ単独では不可能
-- POWER ボタン = GPIO18（SYS_OUT_PIN）として読み取り可能（active-low、内部プルアップ）
-- 短押し・長押しを問わず LOW = 押下として A ボタンに割り当て
+- POWER ボタン = GPIO18（SYS_OUT_PIN）として読み取り可能（**active-high**、内部プルアップ）
+  - 回路: 未押下 → PWRON=HIGH → BSS138 ON → GPIO18=LOW / 押下 → PWRON=LOW → BSS138 OFF → GPIO18=HIGH（R13 1K + 内部プルアップ）
+- 短押し・長押しを問わず HIGH = 押下として A ボタンに割り当て
 
 ### ⚠️ バッテリー使用時の制限
 
