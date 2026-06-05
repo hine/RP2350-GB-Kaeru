@@ -133,14 +133,15 @@ Pre-built UF2 binaries are attached to each [Release](../../releases).
 1. Download the UF2 for your target:
    - `picocalc_gb_kaeru.uf2` — PicoCalc
    - `amoled_gb_kaeru.uf2` — AMOLED
-2. Hold **BOOTSEL** and connect the device via USB.
-3. Copy the UF2 to the mounted drive:
+2. Hold **BOOTSEL** and connect the device via USB.  
+   It will appear as a USB mass storage drive named `RPI-RP2`.
+3. Drag and drop the UF2 onto the drive, or copy it from the command line:
 
 ```sh
 cp picocalc_gb_kaeru.uf2 /media/$USER/RPI-RP2/
 ```
 
-The device reboots automatically when the copy completes.
+The device reboots automatically once the file is written.
 
 ---
 
@@ -185,7 +186,7 @@ cmake --build build -j$(nproc)
 
 ### Flash
 
-Hold BOOTSEL and connect via USB, then write the UF2:
+Hold **BOOTSEL** and connect via USB. The device appears as a USB mass storage drive (`RPI-RP2`). Drag and drop the UF2 onto the drive, or copy it:
 
 ```sh
 # PicoCalc
@@ -224,19 +225,19 @@ picotool load kaeru.gb -t bin -o 0x10100000
 
 ---
 
-## License
+## License & Acknowledgements
 
 This project's original source code is licensed under the [MIT License](LICENSE).
 
-### Third-party libraries
+This project would not exist without the following outstanding open-source libraries. Sincere thanks to their authors.
 
-| Library | License |
-|---------|---------|
-| [Peanut-GB](https://github.com/deltabeard/Peanut-GB) | MIT |
-| [minigb_apu](https://github.com/deltabeard/Peanut-GB/tree/master/examples/sdl2/minigb_apu) | MIT |
-| [LovyanGFX](https://github.com/lovyan03/LovyanGFX) | FreeBSD (2-clause BSD) |
-| [no-OS-FatFS-SD-SPI-RPi-Pico](https://github.com/carlk3/no-OS-FatFS-SD-SPI-RPi-Pico) | Apache 2.0 |
-| FatFs (embedded in above) | BSD-style (ChaN) |
+| Library | License | Role |
+|---------|---------|------|
+| [Peanut-GB](https://github.com/deltabeard/Peanut-GB) | MIT | Game Boy emulation core |
+| [minigb_apu](https://github.com/deltabeard/Peanut-GB/tree/master/examples/sdl2/minigb_apu) | MIT | Game Boy APU (audio) |
+| [LovyanGFX](https://github.com/lovyan03/LovyanGFX) | FreeBSD (2-clause BSD) | SPI LCD driver (PicoCalc) |
+| [no-OS-FatFS-SD-SPI-RPi-Pico](https://github.com/carlk3/no-OS-FatFS-SD-SPI-RPi-Pico) | Apache 2.0 | SD card access |
+| FatFs (embedded in above) | BSD-style (ChaN) | FAT filesystem |
 
 Each library retains its own license. See the respective `LICENSE` files under `lib/`.
 
@@ -377,14 +378,15 @@ RP2350 系デバイス向け Game Boy エミュレータ。「カエルの為に
 1. ターゲットに合った UF2 をダウンロード：
    - `picocalc_gb_kaeru.uf2` — PicoCalc
    - `amoled_gb_kaeru.uf2` — AMOLED
-2. **BOOTSEL** ボタンを押しながら USB 接続する。
-3. マウントされたドライブに UF2 をコピーする：
+2. **BOOTSEL** ボタンを押しながら USB 接続する。  
+   `RPI-RP2` という名前の USB マスストレージとして認識されます。
+3. UF2 ファイルをそのドライブにコピーする（ドラッグ＆ドロップでも可）：
 
 ```sh
 cp picocalc_gb_kaeru.uf2 /media/$USER/RPI-RP2/
 ```
 
-コピー完了後、デバイスは自動的に再起動します。
+書き込みが完了すると自動的に再起動します。
 
 ---
 
@@ -427,11 +429,20 @@ picotool load kaeru.gb -t bin -o 0x10100000
 
 ---
 
-## ライセンス
+## ライセンスと謝辞
 
 本プロジェクトのオリジナルコードは [MIT ライセンス](LICENSE) で公開しています。
 
-### 使用ライブラリ
+このプロジェクトは、素晴らしいオープンソースライブラリの上に成り立っています。  
+作者の皆さんの仕事がなければ、カエルの鐘がここで鳴ることはありませんでした。
+
+**[Peanut-GB](https://github.com/deltabeard/Peanut-GB)** — deltabeard 氏による軽量 Game Boy エミュレーションコア。移植性の高さと小さなフットプリントのおかげで、RP2350 上でのエミュレーションが現実のものになりました。このコアなくして、このプロジェクトは始まりませんでした。
+
+**[minigb_apu](https://github.com/deltabeard/Peanut-GB/tree/master/examples/sdl2/minigb_apu)** — 同じく deltabeard 氏による Game Boy APU 実装。あのピコピコサウンドを正確に再現するための核心部分です。コイン音が正しく鳴ったとき、思わず声が出ました。
+
+**[LovyanGFX](https://github.com/lovyan03/LovyanGFX)** — lovyan03 氏による高機能グラフィックスライブラリ。複雑な SPI LCD の初期化から差分描画まで、痒いところに手が届く設計に何度も助けられました。PicoCalc の画面にゲーム画面が映し出されたあの瞬間は忘れられません。
+
+**[no-OS-FatFS-SD-SPI-RPi-Pico](https://github.com/carlk3/no-OS-FatFS-SD-SPI-RPi-Pico)** / **FatFs (ChaN 氏)** — RP2350 上での SD カードアクセスを支えてくれる組み合わせ。ROM の受け渡しから SD バックアップまで、縁の下で確実に動き続けています。
 
 | ライブラリ | ライセンス |
 |-----------|-----------|
