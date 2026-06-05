@@ -80,7 +80,7 @@ source ~/.bashrc
 プロジェクトルートに `.envrc` が用意されているので、初回のみ許可する：
 
 ```
-cd ~/Projects/RP2350-GB-Kaeru-dev
+cd ~/Projects/RP2350-GB-Kaeru
 direnv allow .
 ```
 
@@ -116,8 +116,8 @@ picotool version
 
 ```
 cd ~/Projects
-git clone --recurse-submodules <repo-url> RP2350-GB-Kaeru-dev
-cd RP2350-GB-Kaeru-dev
+git clone --recurse-submodules <repo-url> RP2350-GB-Kaeru
+cd RP2350-GB-Kaeru
 ```
 
 サブモジュールが未取得の場合：
@@ -131,7 +131,7 @@ git submodule update --init --recursive
 ## 6. ビルド
 
 ```
-cd ~/Projects/RP2350-GB-Kaeru-dev
+cd ~/Projects/RP2350-GB-Kaeru
 
 cmake -S . -B build \
   -G Ninja \
