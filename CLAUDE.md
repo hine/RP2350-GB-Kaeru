@@ -9,12 +9,14 @@ RP2350 系デバイス向け Game Boy エミュレータ（「カエルの為に
 
 | ファイル | 場所 |
 |---------|------|
-| PROGRESS.md | `../RP2350-GB-Kaeru-notes/PROGRESS.md`（worktree: `private-docs` ブランチ） |
-| SCRATCH.md | `../RP2350-GB-Kaeru-notes/SCRATCH.md`（同上） |
+| PROGRESS.md | プロジェクトルート（`../RP2350-GB-Kaeru-notes/PROGRESS.md` へのシンボリックリンク） |
+| SCRATCH.md | プロジェクトルート（`../RP2350-GB-Kaeru-notes/SCRATCH.md` へのシンボリックリンク） |
+
+実体は `private-docs` orphan ブランチ（worktree: `../RP2350-GB-Kaeru-notes/`）で管理。
 
 セッション開始時は必ず両ファイルを読むこと。
 
-PROGRESS.md・SCRATCH.md への変更は `../RP2350-GB-Kaeru-notes/` 内でコミットし、
+PROGRESS.md・SCRATCH.md への変更は `git -C ../RP2350-GB-Kaeru-notes` でコミットし、
 `git -C ../RP2350-GB-Kaeru-notes push origin private-docs` で push する。
 
 ---
@@ -82,6 +84,10 @@ git remote add public <public-repo-url>
 # 3. private-docs worktree をセットアップ
 git fetch origin private-docs
 git worktree add ../RP2350-GB-Kaeru-notes private-docs
+
+# 4. シンボリックリンクを作成
+ln -s ../RP2350-GB-Kaeru-notes/PROGRESS.md PROGRESS.md
+ln -s ../RP2350-GB-Kaeru-notes/SCRATCH.md SCRATCH.md
 
 # 4. ビルド環境構築は DevelopmentEnvironment.md を参照
 ```
