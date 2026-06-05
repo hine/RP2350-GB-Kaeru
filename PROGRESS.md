@@ -35,22 +35,42 @@
 | `board/<name>` | 新デバイス移植作業。安定したら `dev` へマージ |
 | `fix/<name>` | バグ修正。`dev` へマージ後 `main` へ |
 
-**リモート構成（2リモート運用）：**
+**リモート URL：**
 
-```
-origin  → プライベートGitHub（全ブランチ、PC 間共有）
-public  → パブリックGitHub（main + タグのみ push）
-```
+| リモート名 | 用途 |
+|---|---|
+| `origin` | プライベートGitHub（全ブランチ、PC 間共有）|
+| `public` | パブリックGitHub（main + タグのみ push）|
 
-新規セットアップ時:
+> ※ 実際の URL は `git remote -v` で確認。新規セットアップ時は下記手順を参照。
+
+**新PC・新環境でのセットアップ手順：**
+
 ```bash
-git remote add public git@github.com:<user>/RP2350-GB-Kaeru.git
+# 1. プライベートリポジトリをクローン（submodule 込み）
+#    URL は GitHub のプライベートリポジトリページから取得
+git clone --recurse-submodules <private-repo-url>
+cd RP2350-GB-Kaeru
+
+# 2. dev ブランチも取得
+git checkout dev
+
+# 3. パブリックリモートを追加
+#    URL は GitHub のパブリックリポジトリページから取得
+git remote add public <public-repo-url>
+
+# 4. ビルド環境構築は DevelopmentEnvironment.md を参照
 ```
 
-リリース時:
+**リリース手順：**
+
 ```bash
+git checkout main
+git merge dev          # dev の内容を main に取り込む
+git tag -a v1.x.x -m "..."
+git push origin main dev
 git push public main
-git push public v1.x.x
+git push public v1.x.x   # ← これで GitHub Actions が走り UF2 が自動添付される
 ```
 
 タグ push で GitHub Actions が自動ビルドし UF2 を Release に添付する（`.github/workflows/release.yml`）。
