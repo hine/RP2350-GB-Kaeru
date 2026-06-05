@@ -35,28 +35,28 @@
 | `board/<name>` | 新デバイス移植作業。安定したら `dev` へマージ |
 | `fix/<name>` | バグ修正。`dev` へマージ後 `main` へ |
 
-**リモート URL：**
+**リポジトリ構成：**
 
-| リモート名 | 用途 |
-|---|---|
-| `origin` | プライベートGitHub（全ブランチ、PC 間共有）|
-| `public` | パブリックGitHub（main + タグのみ push）|
+| | GitHub リポジトリ名 | ローカルディレクトリ名 | 可視性 |
+|---|---|---|---|
+| `origin` | `RP2350-GB-Kaeru-dev` | `RP2350-GB-Kaeru-dev` | プライベート |
+| `public` | `RP2350-GB-Kaeru` | — | パブリック |
 
-> ※ 実際の URL は `git remote -v` で確認。新規セットアップ時は下記手順を参照。
+> URL は `git remote -v` で確認。
 
 **新PC・新環境でのセットアップ手順：**
 
 ```bash
 # 1. プライベートリポジトリをクローン（submodule 込み）
-#    URL は GitHub のプライベートリポジトリページから取得
-git clone --recurse-submodules <private-repo-url>
-cd RP2350-GB-Kaeru
+#    URL は GitHub の RP2350-GB-Kaeru-dev リポジトリページから取得
+git clone --recurse-submodules <private-repo-url> RP2350-GB-Kaeru-dev
+cd RP2350-GB-Kaeru-dev
 
 # 2. dev ブランチも取得
 git checkout dev
 
 # 3. パブリックリモートを追加
-#    URL は GitHub のパブリックリポジトリページから取得
+#    URL は GitHub の RP2350-GB-Kaeru リポジトリページから取得
 git remote add public <public-repo-url>
 
 # 4. ビルド環境構築は DevelopmentEnvironment.md を参照
