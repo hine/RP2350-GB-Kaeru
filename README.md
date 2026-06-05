@@ -27,7 +27,7 @@ Game Boy emulator for RP2350-based devices, built to play *For the Frog the Bell
 ### PicoCalc
 
 - 160×144 → 320×288 2× scaled display (LovyanGFX, ~60 fps)
-- 4 display palettes: DMG Green / Mono / Sepia / GB Pocket
+- 10 display palettes: DMG Green / Dark Green / Mono / Sepia / Amber / Cool Blue / Teal / Lavender / Rose / Red Mono
 - PWM audio output (12-bit, ~32768 Hz, DMA IRQ driven)
 - Keyboard input (STM32 I2C controller)
 - In-game menu (ESC): palette, audio toggle, SD backup/restore, Clear Flash, Full Erase Flash
@@ -274,7 +274,7 @@ RP2350 系デバイス向け Game Boy エミュレータ。「カエルの為に
 ### PicoCalc
 
 - 160×144 → 320×288 の 2倍スケール表示（LovyanGFX、約60fps）
-- 4 種類のパレット: DMGグリーン / モノクロ / セピア / GBポケット
+- 10 種類のパレット: DMGグリーン / ダークグリーン / モノクロ / セピア / アンバー / クールブルー / ティール / ラベンダー / ローズ / レッドモノ
 - PWM 音声出力（12bit、～32768Hz、DMA IRQ 駆動）
 - キーボード入力（STM32 I2C コントローラ）
 - ゲーム内メニュー（ESCキー）: パレット切替・音声ON/OFF・SD バックアップ・Clear Flash・Full Erase Flash
