@@ -288,6 +288,9 @@ static void update_noise(struct minigb_apu_ctx *ctx, audio_sample_t *samples)
 		sample *= c->volume;
 		sample /= 4;
 
+		/* Scale CH4 output to 25% to reduce prominence (>> 2 = exact 1/4). */
+		sample >>= 2;
+
 		samples[i + 0] += sample * c->on_left * ctx->vol_l;
 		samples[i + 1] += sample * c->on_right * ctx->vol_r;
 	}
