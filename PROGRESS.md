@@ -170,6 +170,7 @@
 | 2026-05-25 | Enter キーを Start ボタンに追加 | 操作の直感性向上 |
 | 2026-06-05 | minigb_apu を src/audio/ にローカルコピーして3件のバグを修正 | CH4 LFSR（左シフト→右シフト・出力ビット誤り）、CH1 sweep down（uint16_t *= -1 の UB）、CH1 sweep shift=0 誤 disable。コイン音が大幅改善。PicoCalc / AMOLED 両対応 |
 | 2026-06-05 | CH4 出力を 25%（>> 2）にスケール | LFSR 修正後も CH4 が他チャンネルより目立ちすぎていたため。チャンネル消音テストで CH4 が原因と特定。PicoCalc / AMOLED 両対応 |
+| 2026-06-05 | テストアプリ削除・ディレクトリ整理 | main.c→main_picocalc.c リネーム、amoled_sound_test/touch_test 削除、PicoCalc hw_config.c を src/boards/picocalc/ に移動（AMOLED と対称化）|
 
 ---
 
@@ -195,7 +196,7 @@
 
 ## 現在のフォーカス
 
-基本実装完了。音量調整 UI、2点タッチ対応などは今後の課題。
+**✅ AMOLED ポーティング完了（2026-06-05）**
 
 ---
 
@@ -245,6 +246,8 @@
 - [x] picotool で直接 Flash に書き込む方法も対応
 
 ### Milestone A7: 200MHz オーバークロック ✅ 完了（2026-06-03）
+
+### Milestone A8: コードクリーンアップ ✅ 完了（2026-06-05）
 
 - [x] `set_sys_clock_khz(200000, true)` 適用
 - [x] QSPI PIO div を動的計算（`clock_get_hz(clk_sys) / (75MHz × 2)`）で速度固定
